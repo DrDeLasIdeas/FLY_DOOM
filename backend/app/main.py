@@ -14,30 +14,38 @@ from pydantic import BaseModel
 
 from .services.simulation_service import SimulationCoordinator
 
-coordinator = SimulationCoordinator()
+coordinator: SimulationCoordinator | None = None
 active_websocket: WebSocket | None = None
+
+
+def get_coordinator() -> SimulationCoordinator:
+    """Lazy singleton accessor — avoids opening ViZDoom at module import time."""
+    global coordinator
+    if coordinator is None:
+        coordinator = SimulationCoordinator()
+    return coordinator
 
 
 async def gemma_background_loop() -> None:
     while True:
         await asyncio.sleep(5.0)
-        await coordinator.run_gemma_cycle()
+        await get_coordinator().run_gemma_cycle()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    coord = get_coordinator()
     task = asyncio.create_task(gemma_background_loop())
     try:
         yield
     finally:
         task.cancel()
-        coordinator.persist_state(commit_partial=True)
-        coordinator.env.close()
+        await coord.shutdown()
 
 
 app = FastAPI(
     title="NeuroDoom OS — SOLID PPO & Drosophila Connectome Engine",
-    version="3.0.0",
+    version="3.1.0",
     lifespan=lifespan,
 )
 
@@ -88,164 +96,173 @@ class SpeedControlRequest(BaseModel):
 
 @app.get("/api/health")
 async def health_check():
-    return coordinator.health_status()
+    return get_coordinator().health_status()
 
 
 @app.get("/api/system")
 async def system_status():
+    coord = get_coordinator()
     return {
         "status": "ok",
-        "system_running": coordinator.system_running,
-        "last_saved_at": coordinator.last_saved_at,
-        "scenario_id": coordinator.env.scenario.id,
-        "episodes": coordinator.agent.episode,
-        "total_kills": getattr(coordinator.env, "total_kills", coordinator.agent.total_kills),
-        "total_shots": getattr(coordinator.env, "total_shots", coordinator.agent.total_shots),
-        "total_hits": getattr(coordinator.env, "total_hits", coordinator.agent.total_hits),
+        "system_running": coord.system_running,
+        "last_saved_at": coord.last_saved_at,
+        "scenario_id": coord.env.scenario.id,
+        "episodes": coord.agent.episode,
+        "total_kills": getattr(coord.env, "total_kills", coord.agent.total_kills),
+        "total_shots": getattr(coord.env, "total_shots", coord.agent.total_shots),
+        "total_hits": getattr(coord.env, "total_hits", coord.agent.total_hits),
         "motor_gains": [
             round(float(g), 3)
-            for g in coordinator.snn_engine.motor_plastic_gain.detach().cpu().numpy()
+            for g in coord.snn_engine.motor_plastic_gain.detach().cpu().numpy()
         ],
     }
 
 
 @app.post("/api/system")
 async def control_system(req: SystemControlRequest):
-    async with coordinator.lock:
+    coord = get_coordinator()
+    async with coord.lock:
         if req.running is False:
-            coordinator.system_running = False
-            saved = coordinator.persist_state(commit_partial=True)
-            coordinator.latest_gemma_state["neuro_hypothesis"] = (
+            coord.system_running = False
+            saved = coord.persist_state(commit_partial=True)
+            coord.latest_gemma_state["neuro_hypothesis"] = (
                 f"Sistema detenido. Aprendizaje guardado ({saved['total_kills']} bajas, "
                 f"{saved['episodes']} episodios)."
             )
             return {"status": "stopped", **saved}
         if req.running is True:
-            if not coordinator.agent.loaded:
-                coordinator.agent.load()
-                coordinator.snn_engine.load_plasticity_state(coordinator.agent.snn_state)
-                coordinator._sync_env_totals_from_agent()
-            coordinator.system_running = True
+            if not coord.agent.loaded:
+                coord.agent.load()
+                coord.snn_engine.load_plasticity_state(coord.agent.snn_state)
+                coord._sync_env_totals_from_agent()
+            coord.system_running = True
             saved = (
-                coordinator.persist_state(commit_partial=False)
+                coord.persist_state(commit_partial=False)
                 if req.save
                 else {
                     "system_running": True,
-                    "last_saved_at": coordinator.last_saved_at,
-                    "episodes": coordinator.agent.episode,
+                    "last_saved_at": coord.last_saved_at,
+                    "episodes": coord.agent.episode,
                     "total_kills": getattr(
-                        coordinator.env, "total_kills", coordinator.agent.total_kills
+                        coord.env, "total_kills", coord.agent.total_kills
                     ),
                     "total_shots": getattr(
-                        coordinator.env, "total_shots", coordinator.agent.total_shots
+                        coord.env, "total_shots", coord.agent.total_shots
                     ),
                     "total_hits": getattr(
-                        coordinator.env, "total_hits", coordinator.agent.total_hits
+                        coord.env, "total_hits", coord.agent.total_hits
                     ),
                 }
             )
-            coordinator.latest_gemma_state["neuro_hypothesis"] = (
-                f"Sistema reanudado ({coordinator.env.scenario.name}, "
+            coord.latest_gemma_state["neuro_hypothesis"] = (
+                f"Sistema reanudado ({coord.env.scenario.name}, "
                 f"{saved['total_kills']} bajas acumuladas)."
             )
             return {"status": "started", **saved}
-        saved = coordinator.persist_state(commit_partial=True)
+        saved = coord.persist_state(commit_partial=True)
         return {"status": "saved", **saved}
 
 
 @app.get("/api/scenarios")
 async def list_scenarios():
-    return coordinator.scenario_status()
+    return get_coordinator().scenario_status()
 
 
 @app.post("/api/scenario")
 async def switch_scenario(req: ScenarioSwitchRequest):
-    async with coordinator.lock:
+    coord = get_coordinator()
+    async with coord.lock:
         try:
-            info = coordinator.switch_scenario(req.scenario_id, skill=req.skill)
+            info = coord.switch_scenario(req.scenario_id, skill=req.skill)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return {"status": "switched", "scenario": info, "policy": coordinator.training_status()}
+        return {"status": "switched", "scenario": info, "policy": coord.training_status()}
 
 
 @app.post("/api/episode/reset")
 async def reset_episode():
-    async with coordinator.lock:
-        return coordinator.reset_episode()
+    coord = get_coordinator()
+    async with coord.lock:
+        return coord.reset_episode()
 
 
 @app.post("/api/speed")
 async def update_speed(req: SpeedControlRequest):
-    async with coordinator.lock:
-        return coordinator.set_speed(target_fps=req.target_fps, tic_skip=req.tic_skip)
+    coord = get_coordinator()
+    async with coord.lock:
+        return coord.set_speed(target_fps=req.target_fps, tic_skip=req.tic_skip)
 
 
 @app.get("/api/training")
 async def training_status():
-    return coordinator.training_status()
+    return get_coordinator().training_status()
 
 
 @app.get("/api/gemma")
 async def gemma_status():
-    return coordinator.latest_gemma_state
+    return get_coordinator().latest_gemma_state
 
 
 @app.get("/api/connectome/topology")
 async def connectome_topology():
-    return coordinator.snn_engine.get_topology_asset()
+    return get_coordinator().snn_engine.get_topology_asset()
 
 
 @app.post("/api/training")
 async def set_training(req: TrainingRequest):
-    async with coordinator.lock:
+    coord = get_coordinator()
+    async with coord.lock:
         if req.reload:
-            coordinator.agent.load()
-            coordinator.snn_engine.load_plasticity_state(coordinator.agent.snn_state)
-            coordinator.agent.buffer.clear()
-            coordinator._sync_env_totals_from_agent()
+            coord.agent.load()
+            coord.snn_engine.load_plasticity_state(coord.agent.snn_state)
+            coord.agent.buffer.clear()
+            coord._sync_env_totals_from_agent()
         if req.reset:
-            coordinator.snn_engine.reset_plasticity_state()
-            coordinator.agent.reset()
-            if hasattr(coordinator.env, "_reset_counters"):
-                coordinator.env._reset_counters()
+            coord.snn_engine.reset_plasticity_state()
+            coord.agent.reset()
+            if hasattr(coord.env, "_reset_counters"):
+                coord.env._reset_counters()
             for attr in ("total_kills", "total_shots", "total_hits"):
-                if hasattr(coordinator.env, attr):
-                    setattr(coordinator.env, attr, 0)
+                if hasattr(coord.env, attr):
+                    setattr(coord.env, attr, 0)
         if req.enabled is not None:
-            coordinator.agent.training_enabled = req.enabled
+            coord.agent.training_enabled = req.enabled
         if req.greedy is not None:
-            coordinator.agent.greedy = req.greedy
+            coord.agent.greedy = req.greedy
         if req.temperature is not None:
-            coordinator.agent.temperature = float(np.clip(req.temperature, 0.2, 3.0))
+            coord.agent.temperature = float(np.clip(req.temperature, 0.2, 3.0))
         if req.save and not req.reset:
-            coordinator.persist_state(commit_partial=False)
-    return {"status": "updated", **coordinator.training_status()}
+            coord.persist_state(commit_partial=False)
+    return {"status": "updated", **coord.training_status()}
 
 
 @app.post("/api/modulate")
 async def manual_modulate(req: ModulateRequest):
+    coord = get_coordinator()
     payload = {k: v for k, v in req.model_dump().items() if v is not None}
-    coordinator.snn_engine.update_biophysical_params(payload)
-    coordinator.latest_gemma_state.update(payload)
-    coordinator.latest_gemma_state["neuro_hypothesis"] = (
+    coord.snn_engine.update_biophysical_params(payload)
+    coord.latest_gemma_state.update(payload)
+    coord.latest_gemma_state["neuro_hypothesis"] = (
         "Intervención manual aplicada desde la consola de conferencia."
     )
-    coordinator.persist_state(commit_partial=False)
+    coord.persist_state(commit_partial=False)
     return {"status": "updated", "params": payload}
 
 
 @app.post("/api/dopamine-pulse")
 async def trigger_dopamine_pulse(req: DopaminePulseRequest):
-    coordinator.snn_engine.inject_dopamine_pulse(req.valence)
+    coord = get_coordinator()
+    coord.snn_engine.inject_dopamine_pulse(req.valence)
     return {
         "status": "injected",
-        "dopamine_level": round(coordinator.snn_engine.dopamine_level, 3),
+        "dopamine_level": round(coord.snn_engine.dopamine_level, 3),
     }
 
 
 @app.websocket("/ws/telemetry")
 async def telemetry_websocket(websocket: WebSocket):
     global active_websocket
+    coord = get_coordinator()
     await websocket.accept()
     previous = active_websocket
     active_websocket = websocket
@@ -258,18 +275,16 @@ async def telemetry_websocket(websocket: WebSocket):
     try:
         while True:
             t_start = time.perf_counter()
-            if not coordinator.system_running:
-                paused_packet = coordinator.build_paused_packet()
+            if not coord.system_running:
+                paused_packet = coord.build_paused_packet()
                 if paused_packet is not None:
                     await websocket.send_json(paused_packet)
                     await asyncio.sleep(0.25)
                     continue
 
-            async with coordinator.lock:
-                packet = coordinator.step_simulation()
-
+            packet = await coord.step_simulation_async()
             await websocket.send_json(packet)
-            frame_interval = 1.0 / float(max(5, coordinator.target_fps))
+            frame_interval = 1.0 / float(max(5, coord.target_fps))
             elapsed = time.perf_counter() - t_start
             await asyncio.sleep(max(0.004, frame_interval - elapsed))
     except (WebSocketDisconnect, RuntimeError):

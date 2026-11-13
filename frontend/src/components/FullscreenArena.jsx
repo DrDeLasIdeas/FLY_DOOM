@@ -6,9 +6,10 @@ import {
   Play,
   Power,
   RotateCcw,
-  Save,
   Skull,
   Target,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
 import LineChart from "./charts/LineChart.jsx";
@@ -52,6 +53,8 @@ export default function FullscreenArena({
   history = [],
   onTraining,
   onSystemControl,
+  audioEnabled = false,
+  onToggleAudio,
   onExit,
   onRequestBrowserFullscreen,
 }) {
@@ -106,10 +109,10 @@ export default function FullscreenArena({
       <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 border-b border-slate-800 bg-slate-950/95">
         <div className="flex items-center gap-3">
           <span className="text-sm font-bold tracking-[0.2em] text-cyan-400">
-            NEURODOOM · ARENA
+            NEURODOOM · {telemetry.scenario?.name?.toUpperCase() || "ARENA"}
           </span>
           <span className="text-[10px] font-mono px-2 py-0.5 rounded border border-fuchsia-500/40 text-fuchsia-300">
-            {telemetry.arena_mode}
+            {telemetry.arena_mode} · {telemetry.actual_fps ?? 30} FPS
           </span>
           <span className="hidden sm:inline text-[10px] font-mono text-slate-400">
             EP #{telemetry.episode} · {telemetry.action_name}
@@ -125,6 +128,18 @@ export default function FullscreenArena({
           <span className="px-2 py-1 rounded bg-slate-900 border border-rose-500/40 text-rose-300">
             BAJAS {telemetry.total_kills ?? 0}
           </span>
+          <button
+            onClick={onToggleAudio}
+            title="Prender / Apagar música y efectos retro DOOM (sin copyright)"
+            className={`flex items-center gap-1 px-2.5 py-1 rounded border font-bold transition ${
+              audioEnabled
+                ? "bg-emerald-500/20 border-emerald-400 text-emerald-300"
+                : "bg-slate-900 border-slate-700 text-slate-300 hover:border-cyan-500/60"
+            }`}
+          >
+            {audioEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+            {audioEnabled ? "Audio ON" : "Audio OFF"}
+          </button>
           <button
             onClick={() => onSystemControl?.({ running: !systemRunning, save: true })}
             className={`flex items-center gap-1 px-2.5 py-1 rounded border font-bold transition ${
@@ -284,11 +299,16 @@ export default function FullscreenArena({
           </Card>
 
           <Card
-            title="Decisión motora"
-            right={policy?.greedy ? "GREEDY" : "EXPLORACIÓN"}
+            title={`Decisión ${policy?.algorithm || "PPO-CNN"}`}
+            right={
+              policy?.greedy
+                ? "GREEDY"
+                : `EXPL. ${((policy?.exploration_rate ?? 0) * 100).toFixed(0)}%`
+            }
           >
             <ActionBars
               probs={policy?.action_probs ?? []}
+              labels={policy?.action_labels}
               actionIdx={policy?.action_idx ?? -1}
               compact
             />

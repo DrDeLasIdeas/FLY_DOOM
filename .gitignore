@@ -21,12 +21,12 @@ wheels/
 *.egg
 
 # Virtual environments
-.venv/
-.venv*/
-venv/
-ENV/
-env/
-.conda/
+/.venv/
+/.venv*/
+/venv/
+/ENV/
+/env/
+/.conda/
 
 # Testing & linting caches
 .pytest_cache/

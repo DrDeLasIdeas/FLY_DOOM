@@ -4,6 +4,10 @@ import {
   Brain,
   Presentation,
   Activity,
+  Maximize2,
+  Music,
+  Volume2,
+  VolumeX,
   Wifi,
   WifiOff,
   Power,
@@ -11,7 +15,17 @@ import {
   Save,
 } from "lucide-react";
 
-export default function Navbar({ mode, setMode, connected, telemetry, onSystemControl }) {
+export default function Navbar({
+  mode,
+  setMode,
+  connected,
+  telemetry,
+  onSystemControl,
+  audioEnabled = false,
+  musicEnabled = true,
+  onToggleAudio,
+  onToggleMusic,
+}) {
   const systemRunning = telemetry?.system_running ?? true;
 
   return (
@@ -30,41 +44,41 @@ export default function Navbar({ mode, setMode, connected, telemetry, onSystemCo
               className="text-xs font-mono px-2 py-0.5 rounded border border-[#4285f4]/45 text-[#448cff]"
               style={{ backgroundColor: "rgba(66, 133, 244, 0.15)" }}
             >
-              FlyWire v783 + Gemma 3
+              PPO-CNN + FlyWire v783
             </span>
           </h1>
           <p className="text-xs text-[#c1c1c1]">
-            Conectoma Biológico de Drosophila melanogaster en Tiempo Real (ARM64)
+            Conectoma Biológico de Drosophila + Agente RL Multi-Escenario (ARM64)
           </p>
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 bg-[#181818] p-1 rounded-xl border border-[#383838]">
+      <div className="flex flex-wrap items-center gap-1.5 bg-[#181818] p-1 rounded-xl border border-[#383838]">
         <button
           onClick={() => setMode("conference")}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
             mode === "conference"
               ? "bg-[#4285f4] text-[#ffffff] border border-[#448cff]"
               : "text-[#c1c1c1] hover:text-[#ffffff] hover:bg-[#252525]"
           }`}
         >
           <Presentation className="w-4 h-4" />
-          1. Explicación Interactiva (5 Etapas)
+          1. Explicación (5 Etapas)
         </button>
         <button
           onClick={() => setMode("arena")}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
             mode === "arena"
               ? "bg-[#4285f4] text-[#ffffff] border border-[#448cff]"
               : "text-[#c1c1c1] hover:text-[#ffffff] hover:bg-[#252525]"
           }`}
         >
           <Activity className="w-4 h-4" />
-          2. Laboratorio en Vivo (Mission Control)
+          2. Laboratorio en Vivo
         </button>
         <button
           onClick={() => setMode("connectome")}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition ${
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
             mode === "connectome"
               ? "bg-[#4285f4] text-[#ffffff] border border-[#448cff]"
               : "text-[#c1c1c1] hover:text-[#ffffff] hover:bg-[#252525]"
@@ -73,14 +87,22 @@ export default function Navbar({ mode, setMode, connected, telemetry, onSystemCo
           <Brain className="w-4 h-4" />
           3. Conectoma 3D
         </button>
+        <button
+          onClick={() => setMode("fullscreen")}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
+            mode === "fullscreen"
+              ? "bg-[#4285f4] text-[#ffffff] border border-[#448cff]"
+              : "text-[#c1c1c1] hover:text-[#ffffff] hover:bg-[#252525]"
+          }`}
+        >
+          <Maximize2 className="w-4 h-4" />
+          4. Arena Fullscreen
+        </button>
       </div>
 
-      <div className="flex items-center gap-3 text-xs font-mono">
+      <div className="flex flex-wrap items-center gap-2.5 text-xs font-mono">
         {telemetry && (
-          <div className="hidden md:flex items-center gap-3 text-[#c1c1c1]">
-            <span>
-              SPK/STEP: <strong className="text-[#ea4335]">{telemetry.biophysics.total_spikes}</strong>
-            </span>
+          <div className="hidden xl:flex items-center gap-3 text-[#c1c1c1]">
             <span>
               FPS: <strong className="text-[#448cff]">{telemetry.actual_fps ?? telemetry.target_fps ?? 30}</strong>
             </span>
@@ -88,13 +110,67 @@ export default function Navbar({ mode, setMode, connected, telemetry, onSystemCo
               LATENCIA: <strong className="text-[#fbbc05]">{telemetry.biophysics.latency_ms} ms</strong>
             </span>
             <span>
-              DOPAMINA: <strong className="text-[#34a853]">{telemetry.biophysics.dopamine_level}</strong>
-            </span>
-            <span>
               BAJAS: <strong className="text-[#ea4335]">{telemetry.total_kills ?? 0}</strong>
             </span>
           </div>
         )}
+
+        {/* Controles de Sonido y Música Retro DOOM (100% Web Audio sin copyright) */}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onToggleAudio}
+            title="Encender o apagar música industrial retro y efectos de combate (100% sintetizados sin copyright)"
+            style={{
+              backgroundColor: audioEnabled
+                ? "rgba(52, 168, 83, 0.18)"
+                : "rgba(24, 24, 24, 0.9)",
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-semibold transition ${
+              audioEnabled
+                ? "border-[#34a853] text-[#34a853] hover:brightness-110"
+                : "border-[#383838] text-[#c1c1c1] hover:border-[#448cff] hover:text-[#ffffff]"
+            }`}
+          >
+            {audioEnabled ? (
+              <>
+                <Volume2 className="w-3.5 h-3.5" />
+                Audio Retro: ON
+              </>
+            ) : (
+              <>
+                <VolumeX className="w-3.5 h-3.5" />
+                Audio Retro: OFF
+              </>
+            )}
+          </button>
+
+          {audioEnabled && (
+            <button
+              type="button"
+              onClick={onToggleMusic}
+              title={
+                musicEnabled
+                  ? "Silenciar solo la música manteniendo los efectos de disparo/bajas"
+                  : "Activar música industrial retro"
+              }
+              style={{
+                backgroundColor: musicEnabled
+                  ? "rgba(66, 133, 244, 0.18)"
+                  : "rgba(24, 24, 24, 0.9)",
+              }}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border transition ${
+                musicEnabled
+                  ? "border-[#4285f4]/70 text-[#448cff]"
+                  : "border-[#383838] text-[#c1c1c1]"
+              }`}
+            >
+              <Music className="w-3.5 h-3.5" />
+              {musicEnabled ? "Música" : "Solo SFX"}
+            </button>
+          )}
+        </div>
+
         <button
           onClick={() => onSystemControl?.({ running: !systemRunning, save: true })}
           title={
@@ -125,6 +201,7 @@ export default function Navbar({ mode, setMode, connected, telemetry, onSystemCo
             </>
           )}
         </button>
+
         <span
           style={{
             backgroundColor: !connected
@@ -151,8 +228,8 @@ export default function Navbar({ mode, setMode, connected, telemetry, onSystemCo
           {!connected
             ? "RECONECTANDO..."
             : systemRunning
-            ? "STREAM 35Hz ONLINE"
-            : `PAUSA · ${telemetry?.total_kills ?? 0} BAJAS GUARDADAS`}
+            ? "STREAM ONLINE"
+            : `PAUSA · ${telemetry?.total_kills ?? 0} BAJAS`}
         </span>
       </div>
     </header>

@@ -41,6 +41,18 @@ class RolloutBuffer:
         self.dones.clear()
         self.values.clear()
 
+    def pop_snapshot(self) -> "RolloutBuffer":
+        """Extracts a detached copy of the current trajectory and clears this buffer."""
+        snap = RolloutBuffer()
+        snap.observations = list(self.observations)
+        snap.actions = list(self.actions)
+        snap.log_probs = list(self.log_probs)
+        snap.rewards = list(self.rewards)
+        snap.dones = list(self.dones)
+        snap.values = list(self.values)
+        self.clear()
+        return snap
+
     def add(
         self,
         obs: np.ndarray,

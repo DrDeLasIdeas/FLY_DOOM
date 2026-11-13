@@ -1,12 +1,23 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import Navbar from "./components/Navbar.jsx";
 import ConferenceDeck from "./components/ConferenceDeck.jsx";
 import LiveArena from "./components/LiveArena.jsx";
+import FullscreenArena from "./components/FullscreenArena.jsx";
 import ConnectomeStudio from "./components/connectome/ConnectomeStudio.jsx";
 import { useTelemetrySocket } from "./hooks/useTelemetrySocket.js";
+import { useRetroAudio } from "./hooks/useRetroAudio.js";
+
+function getInitialMode() {
+  if (typeof window === "undefined") return "conference";
+  const param = new URLSearchParams(window.location.search).get("mode");
+  if (param && ["conference", "arena", "connectome", "fullscreen"].includes(param)) {
+    return param;
+  }
+  return "conference";
+}
 
 export default function App() {
-  const [mode, setMode] = useState("conference");
+  const [mode, setMode] = useState(getInitialMode);
   const {
     telemetry,
     history,
@@ -20,6 +31,34 @@ export default function App() {
     resetEpisode,
   } = useTelemetrySocket();
 
+  const {
+    audioEnabled,
+    musicEnabled,
+    toggleAudio,
+    toggleMusic,
+    triggerDopamineSfx,
+  } = useRetroAudio(telemetry);
+
+  const handleDopaminePulse = useCallback(
+    (valence) => {
+      triggerDopamineSfx(valence);
+      return sendDopaminePulse(valence);
+    },
+    [sendDopaminePulse, triggerDopamineSfx]
+  );
+
+  const requestBrowserFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen?.();
+      } else {
+        await document.exitFullscreen?.();
+      }
+    } catch {
+      // ignore fullscreen permission rejections
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#212121] text-[#ffffff] flex flex-col">
       <Navbar
@@ -28,6 +67,10 @@ export default function App() {
         connected={connected}
         telemetry={telemetry}
         onSystemControl={controlSystem}
+        audioEnabled={audioEnabled}
+        musicEnabled={musicEnabled}
+        onToggleAudio={toggleAudio}
+        onToggleMusic={toggleMusic}
       />
       <main className="flex-1 bg-[#212121]">
         {mode === "conference" ? (
@@ -35,7 +78,7 @@ export default function App() {
             telemetry={telemetry}
             history={history}
             connected={connected}
-            onDopaminePulse={sendDopaminePulse}
+            onDopaminePulse={handleDopaminePulse}
             onModulate={updateBiophysics}
             onTraining={sendTraining}
           />
@@ -43,7 +86,7 @@ export default function App() {
           <LiveArena
             telemetry={telemetry}
             history={history}
-            onDopaminePulse={sendDopaminePulse}
+            onDopaminePulse={handleDopaminePulse}
             onModulate={updateBiophysics}
             onTraining={sendTraining}
             onSystemControl={controlSystem}
@@ -51,6 +94,17 @@ export default function App() {
             onUpdateSpeed={updateSpeed}
             onResetEpisode={resetEpisode}
             onOpenStudio={() => setMode("connectome")}
+          />
+        ) : mode === "fullscreen" ? (
+          <FullscreenArena
+            telemetry={telemetry}
+            history={history}
+            onTraining={sendTraining}
+            onSystemControl={controlSystem}
+            audioEnabled={audioEnabled}
+            onToggleAudio={toggleAudio}
+            onExit={() => setMode("arena")}
+            onRequestBrowserFullscreen={requestBrowserFullscreen}
           />
         ) : (
           <ConnectomeStudio telemetry={telemetry} />

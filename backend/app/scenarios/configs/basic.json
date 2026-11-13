@@ -10,7 +10,7 @@
     {"name": "ATTACK", "label": "Disparar", "buttons": [0, 0, 1]},
     {"name": "IDLE", "label": "Reposo", "buttons": [0, 0, 0]}
   ],
-  "game_variables": ["AMMO2"],
+  "game_variables": ["AMMO2", "HEALTH", "KILLCOUNT"],
   "episode_timeout": 300,
   "default_skill": 5,
   "ammo_max": 50.0,

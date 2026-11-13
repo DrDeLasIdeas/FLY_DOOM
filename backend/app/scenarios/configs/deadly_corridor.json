@@ -21,10 +21,10 @@
     {"name": "ATTACK", "label": "Disparar", "buttons": [0, 0, 1, 0, 0, 0, 0]},
     {"name": "FORWARD_ATTACK", "label": "Avanzar y Disparar", "buttons": [0, 0, 1, 1, 0, 0, 0]}
   ],
-  "game_variables": ["HEALTH"],
+  "game_variables": ["AMMO2", "HEALTH", "KILLCOUNT"],
   "episode_timeout": 1200,
   "default_skill": 3,
-  "ammo_max": 50.0,
+  "ammo_max": 52.0,
   "reward_shaper": "corridor",
   "is_combat": true
 }

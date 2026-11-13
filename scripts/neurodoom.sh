@@ -93,7 +93,7 @@ cmd_stop() {
   rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
   kill_port 8000
   kill_port 3000
-  log "Servicios detenidos (aprendizaje y bajas guardados en data/motor_policy.pt)."
+  log "Servicios detenidos (aprendizaje y bajas guardados en checkpoints/)."
 }
 
 cmd_start() {
@@ -160,19 +160,33 @@ print(f"  historial={len(h)} eps")
 }
 
 cmd_train() {
-  local preset="${1:-fast}"
+  local arg1="${1:-fast}"
+  local scenario="defend_the_center"
+  local episodes=30
+
+  case "$arg1" in
+    bootstrap) episodes=10 ;;
+    fast) episodes=25 ;;
+    standard) episodes=50 ;;
+    full) episodes=100 ;;
+    *)
+      scenario="$arg1"
+      episodes="${2:-30}"
+      ;;
+  esac
+
   local was_live=0
   if curl -sf --max-time 2 "$BACKEND_URL/api/health" >/dev/null 2>&1; then
     was_live=1
-    log "Deteniendo servicios para entrenar sin competir por ViZDoom..."
+    log "Deteniendo servicios para entrenar PPO sin competir por ViZDoom..."
     cmd_stop
   fi
-  log "Entrenando política motora (preset=$preset)..."
-  PYTHONPATH=. "$PYTHON" scripts/train_motor_policy.py --preset "$preset" \
-    --checkpoint "$ROOT/data/motor_policy.pt"
+  log "Entrenando agente PPO-CNN (escenario=$scenario, episodios=$episodes)..."
+  PYTHONPATH=. "$PYTHON" scripts/train_ppo.py --scenario "$scenario" \
+    --episodes "$episodes" --checkpoint-dir "$ROOT/checkpoints"
   local rc=$?
   if [ "$was_live" -eq 1 ]; then
-    log "Reiniciando servicios con el nuevo checkpoint..."
+    log "Reiniciando servicios con el nuevo checkpoint PPO..."
     cmd_start
   fi
   if [ "$rc" -ne 0 ]; then

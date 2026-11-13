@@ -1,27 +1,26 @@
-"""SimulationCoordinator — DIP-based orchestrator decoupling FastAPI from RL/SNN/ViZDoom."""
+"""SimulationCoordinator — DIP orchestrator decoupling FastAPI from RL, SNN, ViZDoom & Gemma 3."""
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import time
-from collections import deque
 from typing import Any
 
-import cv2
 import numpy as np
 
 from ..config import settings
 from ..connectome_snn import DrosophilaConnectomeEngine
-from ..core.interfaces import EnvironmentAdapter, StepObservation
-from ..gemma_neuromodulator import query_local_gemma_neuromodulator
+from ..core.interfaces import EnvironmentAdapter, Neuromodulator, StepObservation
+from ..gemma_neuromodulator import GemmaNeuromodulatorAdapter
 from ..rl import PPOAgent, PPOConfig
 from ..scenarios import ScenarioFactory
 from ..vision import VisualBufferConfig, VisualBufferProcessor
+from .state_store import SystemStateStore
+from .telemetry_builder import TelemetryPacketBuilder
 
 
 class SimulationCoordinator:
-    """Coordinates VisualBuffer, PPOAgent, Drosophila SNN, ViZDoom, and Gemma 3."""
+    """Coordinates VisualBuffer, PPOAgent, Drosophila SNN, EnvironmentAdapter, and Neuromodulator."""
 
     def __init__(
         self,
@@ -30,6 +29,9 @@ class SimulationCoordinator:
         scenario_factory: ScenarioFactory | None = None,
         visual_processor: VisualBufferProcessor | None = None,
         rl_agent: PPOAgent | None = None,
+        neuromodulator: Neuromodulator | None = None,
+        packet_builder: TelemetryPacketBuilder | None = None,
+        state_store: SystemStateStore | None = None,
         initial_scenario: str | None = None,
         target_fps: int | None = None,
     ):
@@ -38,6 +40,8 @@ class SimulationCoordinator:
         self.visual_processor = visual_processor or VisualBufferProcessor(
             VisualBufferConfig(width=84, height=84, stack_size=4)
         )
+        self.neuromodulator: Neuromodulator = neuromodulator or GemmaNeuromodulatorAdapter()
+        self.state_store = state_store or SystemStateStore()
 
         scenario_id = initial_scenario or settings.default_scenario
         self.env: EnvironmentAdapter = self.scenario_factory.create(
@@ -53,15 +57,17 @@ class SimulationCoordinator:
         )
         self.agent.load()
         self.snn_engine.load_plasticity_state(self.agent.snn_state)
-        self._sync_env_totals_from_agent()
+        self.state_store.sync_env_totals_from_agent(self.env, self.agent)
 
         self.lock = asyncio.Lock()
         self.system_running: bool = True
         self.target_fps: int = int(np.clip(target_fps or settings.target_fps, 5, 60))
+        self.packet_builder = packet_builder or TelemetryPacketBuilder(
+            initial_fps=float(self.target_fps)
+        )
         self.last_saved_at: float | None = round(time.time(), 3) if self.agent.loaded else None
         self.last_packet_cache: dict[str, Any] | None = None
-        self._frame_timestamps: deque[float] = deque(maxlen=30)
-        self.actual_fps: float = float(self.target_fps)
+        self._bg_ppo_task: asyncio.Task | None = None
 
         self.latest_rates: dict[str, float] = {
             "retina_r1_r8": 0.0,
@@ -92,68 +98,24 @@ class SimulationCoordinator:
         )
         self._last_reward: float = 0.0
 
+    @property
+    def actual_fps(self) -> float:
+        return self.packet_builder.actual_fps
+
     def _sync_env_totals_from_agent(self) -> None:
-        if hasattr(self.env, "total_kills"):
-            self.env.total_kills = max(getattr(self.env, "total_kills", 0), self.agent.total_kills)
-        if hasattr(self.env, "total_shots"):
-            self.env.total_shots = max(getattr(self.env, "total_shots", 0), self.agent.total_shots)
-        if hasattr(self.env, "total_hits"):
-            self.env.total_hits = max(getattr(self.env, "total_hits", 0), self.agent.total_hits)
-
-    @staticmethod
-    def _encode_jpeg_b64(image: np.ndarray, *, is_rgb: bool = True, quality: int = 80) -> str:
-        arr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) if is_rgb else image
-        ok, buffer = cv2.imencode(".jpg", arr, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
-        if not ok:
-            return ""
-        return base64.b64encode(buffer).decode("utf-8")
-
-    def _update_fps(self) -> float:
-        now = time.perf_counter()
-        self._frame_timestamps.append(now)
-        if len(self._frame_timestamps) >= 2:
-            span = self._frame_timestamps[-1] - self._frame_timestamps[0]
-            if span > 1e-6:
-                self.actual_fps = round((len(self._frame_timestamps) - 1) / span, 1)
-        return self.actual_fps
+        self.state_store.sync_env_totals_from_agent(self.env, self.agent)
 
     def persist_state(self, commit_partial: bool = False) -> dict[str, Any]:
-        self.agent.snn_state = self.snn_engine.get_plasticity_state()
-        live_kills = max(self.agent.total_kills, getattr(self.env, "total_kills", 0))
-        live_shots = max(self.agent.total_shots, getattr(self.env, "total_shots", 0))
-        live_hits = max(self.agent.total_hits, getattr(self.env, "total_hits", 0))
-
-        if commit_partial and len(self.agent.buffer) >= 2:
-            self.agent.update(self._stacked_obs, False)
-
-        live_acc = live_hits / max(1, live_shots)
-        self.agent.total_kills = live_kills
-        self.agent.total_shots = live_shots
-        self.agent.total_hits = live_hits
-        self.agent.accuracy = live_acc
-        self.agent.save(
-            extra_stats={
-                "total_kills": live_kills,
-                "total_shots": live_shots,
-                "total_hits": live_hits,
-                "accuracy": live_acc,
-                "best_kills": max(self.agent.best_kills, live_kills),
-            }
+        saved = self.state_store.persist(
+            agent=self.agent,
+            snn_engine=self.snn_engine,
+            env=self.env,
+            stacked_obs=self._stacked_obs,
+            system_running=self.system_running,
+            commit_partial=commit_partial,
         )
-        self.last_saved_at = round(time.time(), 3)
-        return {
-            "system_running": self.system_running,
-            "last_saved_at": self.last_saved_at,
-            "scenario_id": self.env.scenario.id,
-            "episodes": self.agent.episode,
-            "total_kills": live_kills,
-            "total_shots": live_shots,
-            "total_hits": live_hits,
-            "motor_gains": [
-                round(float(g), 3)
-                for g in self.snn_engine.motor_plastic_gain.detach().cpu().numpy()
-            ],
-        }
+        self.last_saved_at = saved["last_saved_at"]
+        return saved
 
     def switch_scenario(self, scenario_id: str, skill: int | None = None) -> dict[str, Any]:
         self.persist_state(commit_partial=True)
@@ -194,7 +156,9 @@ class SimulationCoordinator:
             "episode": self._last_obs.episode,
         }
 
-    def set_speed(self, *, target_fps: int | None = None, tic_skip: int | None = None) -> dict[str, Any]:
+    def set_speed(
+        self, *, target_fps: int | None = None, tic_skip: int | None = None
+    ) -> dict[str, Any]:
         if target_fps is not None:
             self.target_fps = int(np.clip(target_fps, 5, 60))
         if tic_skip is not None:
@@ -259,13 +223,22 @@ class SimulationCoordinator:
         )
         return status
 
-    def step_simulation(self) -> dict[str, Any]:
-        """Executes one complete biophysical + visual RL + environment telemetry cycle."""
-        for _ in range(settings.substeps_per_frame):
-            self.latest_rates = self.snn_engine.step_biophysics(
-                self._last_retina, self._last_reward, dt=1.0
-            )
-            self._last_reward = 0.0
+    async def _launch_async_ppo_update(self, job: dict[str, Any]) -> None:
+        try:
+            result = await asyncio.to_thread(self.agent.run_shadow_update, job)
+            async with self.lock:
+                self.agent.commit_shadow_update(result)
+        except Exception as exc:
+            print(f"[SimulationCoordinator] Error en actualización PPO asíncrona: {exc}")
+
+    def _step_core(self, *, defer_ppo_update: bool = False) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        self.latest_rates = self.snn_engine.step_frame(
+            self._last_retina,
+            self._last_reward,
+            substeps=settings.substeps_per_frame,
+            dt=1.0,
+        )
+        self._last_reward = 0.0
 
         obs_tensor = self._stacked_obs
         decision = self.agent.select_action(obs_tensor, self.env.action_labels)
@@ -276,14 +249,16 @@ class SimulationCoordinator:
         self._last_retina = self.visual_processor.compute_retina_64(step_obs.raw_frame)
         self._last_reward = step_obs.native_reward
 
+        pending_job: dict[str, Any] | None = None
         if step_obs.episode_finished:
-            self.agent.observe_transition(
-                obs_tensor,
-                decision,
-                step_obs.shaped_reward,
-                True,
-                next_obs=obs_tensor,
+            ready = self.agent.record_step(
+                obs_tensor, decision, step_obs.shaped_reward, True
             )
+            if ready:
+                if defer_ppo_update:
+                    pending_job = self.agent.prepare_async_update(obs_tensor, True)
+                else:
+                    self.agent.update(obs_tensor, True)
             self.agent.snn_state = self.snn_engine.get_plasticity_state()
             self.agent.on_episode_end(step_obs.last_episode)
             self.visual_processor.reset()
@@ -291,146 +266,60 @@ class SimulationCoordinator:
             self.last_saved_at = round(time.time(), 3)
         else:
             next_stack = self.visual_processor.process(step_obs.raw_frame)
-            self.agent.observe_transition(
-                obs_tensor,
-                decision,
-                step_obs.shaped_reward,
-                False,
-                next_obs=next_stack,
+            ready = self.agent.record_step(
+                obs_tensor, decision, step_obs.shaped_reward, False
             )
+            if ready:
+                if defer_ppo_update:
+                    pending_job = self.agent.prepare_async_update(next_stack, False)
+                else:
+                    self.agent.update(next_stack, False)
             self._stacked_obs = next_stack
             if step_obs.total_kills > prev_total_kills:
                 self.persist_state(commit_partial=False)
 
-        actual_fps = self._update_fps()
-        frame_b64 = self._encode_jpeg_b64(step_obs.display_frame, is_rgb=True, quality=80)
-        retina_b64 = self._encode_jpeg_b64(self._last_retina, is_rgb=False, quality=85)
-        visual_buffer_b64 = self.visual_processor.encode_stack_mosaic_b64(quality=80)
-
-        live_acc = round(step_obs.total_hits / max(1, step_obs.total_shots), 3)
-        attack_idx = next(
-            (i for i, lbl in enumerate(self.env.action_labels) if "ATTACK" in lbl),
-            None,
+        packet = self.packet_builder.build_live_packet(
+            step_obs=step_obs,
+            decision=decision,
+            retina_64=self._last_retina,
+            visual_processor=self.visual_processor,
+            env=self.env,
+            agent=self.agent,
+            snn_engine=self.snn_engine,
+            latest_rates=self.latest_rates,
+            latest_gemma_state=self.latest_gemma_state,
+            scenario_status=self.scenario_status(),
+            system_running=self.system_running,
+            target_fps=self.target_fps,
+            last_saved_at=self.last_saved_at,
         )
-        attack_power = (
-            decision.action_probs[attack_idx]
-            if attack_idx is not None and attack_idx < len(decision.action_probs)
-            else 0.0
-        )
-
-        packet = {
-            "timestamp": round(time.time(), 3),
-            "system_running": self.system_running,
-            "last_saved_at": self.last_saved_at,
-            "actual_fps": actual_fps,
-            "target_fps": self.target_fps,
-            "tic_skip": getattr(self.env, "tic_skip", 2),
-            "frame_b64": frame_b64,
-            "retina_b64": retina_b64,
-            "visual_buffer_b64": visual_buffer_b64,
-            "visual_buffer_shape": list(self.visual_processor.output_shape),
-            "action_name": step_obs.action_name,
-            "health": step_obs.health,
-            "ammo": step_obs.ammo,
-            "ammo_max": step_obs.ammo_max,
-            "kills": step_obs.kills,
-            "total_kills": step_obs.total_kills,
-            "shots_fired": step_obs.shots_fired,
-            "shots_hit": step_obs.shots_hit,
-            "total_shots": step_obs.total_shots,
-            "total_hits": step_obs.total_hits,
-            "accuracy": round(step_obs.shots_hit / max(1, step_obs.shots_fired), 3),
-            "enemy": step_obs.enemy_overlay,
-            "shaped_reward": step_obs.shaped_reward,
-            "episode": step_obs.episode,
-            "episode_reward": step_obs.episode_reward,
-            "episode_finished": step_obs.episode_finished,
-            "last_episode": step_obs.last_episode,
-            "arena_mode": step_obs.mode,
-            "scenario": self.scenario_status(),
-            "rates": self.latest_rates,
-            "biophysics": {
-                "v_thresh": round(self.snn_engine.v_thresh, 2),
-                "dopamine_lr": round(self.snn_engine.dopamine_lr, 4),
-                "sensory_gain": round(self.snn_engine.sensory_gain, 1),
-                "noise_std": round(self.snn_engine.noise_std, 2),
-                "dopamine_level": round(self.snn_engine.dopamine_level, 3),
-                "total_spikes": self.snn_engine.total_spikes_step,
-                "latency_ms": self.snn_engine.last_latency_ms,
-                "motor_gains": [
-                    round(float(g), 3)
-                    for g in self.snn_engine.motor_plastic_gain.detach().cpu().numpy()
-                ],
-                "v_rest": self.snn_engine.v_rest,
-                "v_reset": self.snn_engine.v_reset,
-                "tau_m": self.snn_engine.tau_m,
-                "tau_syn": self.snn_engine.tau_syn,
-                "substeps": settings.substeps_per_frame,
-                "num_synapses": self.snn_engine.num_synapses,
-                "device": str(self.snn_engine.device),
-            },
-            "lif_trace": self.snn_engine.get_lif_trace(),
-            "gemma": self.latest_gemma_state,
-            "connectome": self.snn_engine.get_dynamic_activity(),
-            "neurons_3d": self.snn_engine.get_sampled_3d_activity(360),
-            "policy": {
-                **self.agent.status(),
-                "total_kills": step_obs.total_kills,
-                "total_shots": step_obs.total_shots,
-                "total_hits": step_obs.total_hits,
-                "best_kills": max(self.agent.best_kills, step_obs.total_kills),
-                "accuracy": live_acc,
-                "action_idx": decision.action_idx,
-                "action_name": step_obs.action_name,
-                "action_prob": round(decision.action_prob, 4),
-                "action_probs": [round(p, 4) for p in decision.action_probs],
-                "attack_power": round(float(attack_power), 4),
-                "system_running": self.system_running,
-                "actual_fps": actual_fps,
-                "target_fps": self.target_fps,
-                "tic_skip": getattr(self.env, "tic_skip", 2),
-                "last_saved_at": self.last_saved_at,
-            },
-        }
         self.last_packet_cache = packet
+        return packet, pending_job
+
+    def step_simulation(self) -> dict[str, Any]:
+        """Synchronous simulation step (for CLI / tests)."""
+        packet, _ = self._step_core(defer_ppo_update=False)
+        return packet
+
+    async def step_simulation_async(self) -> dict[str, Any]:
+        """Non-blocking simulation step for 30-60 Hz WebSocket streaming."""
+        can_defer = self._bg_ppo_task is None or self._bg_ppo_task.done()
+        async with self.lock:
+            packet, job = self._step_core(defer_ppo_update=can_defer)
+        if job is not None:
+            self._bg_ppo_task = asyncio.create_task(self._launch_async_ppo_update(job))
         return packet
 
     def build_paused_packet(self) -> dict[str, Any] | None:
-        if self.last_packet_cache is None:
-            return None
-        live_kills = getattr(self.env, "total_kills", self.agent.total_kills)
-        live_shots = getattr(self.env, "total_shots", self.agent.total_shots)
-        live_hits = getattr(self.env, "total_hits", self.agent.total_hits)
-        return {
-            **self.last_packet_cache,
-            "timestamp": round(time.time(), 3),
-            "system_running": False,
-            "actual_fps": 0.0,
-            "target_fps": self.target_fps,
-            "tic_skip": getattr(self.env, "tic_skip", 2),
-            "last_saved_at": self.last_saved_at,
-            "action_name": "SISTEMA DETENIDO (GUARDADO)",
-            "total_kills": live_kills,
-            "total_shots": live_shots,
-            "total_hits": live_hits,
-            "gemma": self.latest_gemma_state,
-            "scenario": self.scenario_status(),
-            "policy": {
-                **self.last_packet_cache.get("policy", {}),
-                **self.agent.status(),
-                "total_kills": live_kills,
-                "total_shots": live_shots,
-                "total_hits": live_hits,
-                "best_kills": max(self.agent.best_kills, live_kills),
-                "accuracy": round(live_hits / max(1, live_shots), 3),
-                "action_name": "SISTEMA DETENIDO (GUARDADO)",
-                "system_running": False,
-                "actual_fps": 0.0,
-                "target_fps": self.target_fps,
-                "tic_skip": getattr(self.env, "tic_skip", 2),
-                "last_saved_at": self.last_saved_at,
-            },
-        }
+        return self.packet_builder.build_paused_packet(
+            cached_packet=self.last_packet_cache,
+            env=self.env,
+            agent=self.agent,
+            latest_gemma_state=self.latest_gemma_state,
+            scenario_status=self.scenario_status(),
+            target_fps=self.target_fps,
+            last_saved_at=self.last_saved_at,
+        )
 
     async def run_gemma_cycle(self) -> None:
         if not self.system_running:
@@ -441,6 +330,15 @@ class SimulationCoordinator:
             "sensory_gain": self.snn_engine.sensory_gain,
             "noise_std": self.snn_engine.noise_std,
         }
-        result = await query_local_gemma_neuromodulator(self.latest_rates, current_params)
+        result = await self.neuromodulator.modulate(self.latest_rates, current_params)
         self.snn_engine.update_biophysical_params(result)
         self.latest_gemma_state = result
+
+    async def shutdown(self) -> None:
+        if self._bg_ppo_task is not None and not self._bg_ppo_task.done():
+            try:
+                await self._bg_ppo_task
+            except Exception:
+                pass
+        self.persist_state(commit_partial=True)
+        self.env.close()

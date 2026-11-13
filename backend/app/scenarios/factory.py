@@ -29,6 +29,7 @@ class ScenarioFactory:
         skill: int | None = None,
         tic_skip: int = 2,
         render_overlay: bool = True,
+        legacy_reset_step: bool = False,
     ) -> EnvironmentAdapter:
         config = self.registry.get(scenario_id)
         shaper = create_reward_shaper(config.reward_shaper)
@@ -41,6 +42,7 @@ class ScenarioFactory:
                 skill=effective_skill,
                 tic_skip=tic_skip,
                 render_overlay=render_overlay,
+                legacy_reset_step=legacy_reset_step,
             )
 
         try:
@@ -50,6 +52,7 @@ class ScenarioFactory:
                 skill=effective_skill,
                 tic_skip=tic_skip,
                 render_overlay=render_overlay,
+                legacy_reset_step=legacy_reset_step,
             )
         except Exception as exc:
             print(
@@ -61,4 +64,5 @@ class ScenarioFactory:
                 skill=effective_skill,
                 tic_skip=tic_skip,
                 render_overlay=render_overlay,
+                legacy_reset_step=legacy_reset_step,
             )

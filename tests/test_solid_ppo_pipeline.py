@@ -4,7 +4,8 @@ import pytest
 import torch
 from fastapi.testclient import TestClient
 
-from backend.app.core.interfaces import EnvironmentAdapter, RLAgent
+from backend.app.core.interfaces import EnvironmentAdapter, Neuromodulator, RLAgent
+from backend.app.gemma_neuromodulator import GemmaNeuromodulatorAdapter
 from backend.app.rl import PPOAgent, PPOConfig, RolloutBuffer
 from backend.app.scenarios import ScenarioFactory, ScenarioRegistry
 from backend.app.services.simulation_service import SimulationCoordinator
@@ -188,3 +189,81 @@ def test_simulation_coordinator_and_api_controls(tmp_path, monkeypatch):
     assert r_reset.status_code == 200
     assert r_reset.json()["status"] == "episode_reset"
     coord.env.close()
+
+
+def test_immediate_terminal_step_preserves_reward_and_summary():
+    factory = ScenarioFactory()
+    adapter = factory.create("defend_the_center", force_synthetic=True, tic_skip=2)
+    adapter.set_episode_timeout(3)
+    adapter.reset()
+
+    obs1 = adapter.step(2)
+    assert obs1.episode_finished is False
+    obs2 = adapter.step(2)
+    assert obs2.episode_finished is False
+    obs3 = adapter.step(2)
+    assert obs3.episode_finished is True
+    assert obs3.last_episode["steps"] == 3
+    assert obs3.action_name == "ATTACK"
+    assert obs3.shaped_reward != 0.0
+    adapter.close()
+
+
+def test_same_action_count_scenario_switch_rebuilds_weights_and_greedy_skips_rollout(tmp_path):
+    cfg = PPOConfig(rollout_steps=8, minibatch_size=4, checkpoint_dir=str(tmp_path))
+    agent = PPOAgent(
+        scenario_id="defend_the_center",
+        action_labels=["TURN_LEFT", "TURN_RIGHT", "ATTACK", "IDLE"],
+        config=cfg,
+    )
+    with torch.no_grad():
+        for p in agent.network.actor_head.parameters():
+            p.fill_(3.14)
+
+    # Switch to another 4-action scenario with no saved checkpoint -> must NOT keep 3.14 weights
+    agent.switch_scenario(
+        "basic",
+        ["MOVE_LEFT", "MOVE_RIGHT", "ATTACK", "IDLE"],
+        load_if_exists=True,
+    )
+    actor_max = max(float(p.abs().max().item()) for p in agent.network.actor_head.parameters())
+    assert actor_max < 1.0
+
+    # Greedy mode must never pollute on-policy RolloutBuffer
+    agent.greedy = True
+    obs = np.zeros((4, 84, 84), dtype=np.float32)
+    dec = agent.select_action(obs)
+    assert agent.status()["exploration_rate"] == 0.0
+    agent.observe_transition(obs, dec, reward=1.0, done=False, next_obs=obs)
+    assert len(agent.buffer) == 0
+
+
+def test_async_shadow_ppo_update_and_gemma_neuromodulator_protocol(tmp_path):
+    import asyncio
+
+    adapter = GemmaNeuromodulatorAdapter(ollama_host="http://127.0.0.1:9", timeout_sec=0.2)
+    assert isinstance(adapter, Neuromodulator)
+    res = asyncio.run(
+        adapter.modulate(
+            {"mushroom_body_kc": 0.004},
+            {"v_thresh": -45.0, "dopamine_lr": 0.008, "sensory_gain": 18.0, "noise_std": 0.8},
+        )
+    )
+    assert res["status"] == "HOMEOSTATIC_FALLBACK"
+
+    cfg = PPOConfig(rollout_steps=8, minibatch_size=4, update_epochs=2, checkpoint_dir=str(tmp_path))
+    agent = PPOAgent(scenario_id="basic", config=cfg)
+    rng = np.random.default_rng(5)
+    obs = rng.uniform(0.0, 1.0, size=(4, 84, 84)).astype(np.float32)
+    for _ in range(8):
+        dec = agent.select_action(obs)
+        agent.record_step(obs, dec, reward=0.25, done=False)
+
+    job = agent.prepare_async_update(obs, False)
+    assert job is not None
+    assert len(agent.buffer) == 0
+    shadow_out = agent.run_shadow_update(job)
+    loss = agent.commit_shadow_update(shadow_out)
+    assert np.isfinite(loss)
+    assert agent.updates == 1
+

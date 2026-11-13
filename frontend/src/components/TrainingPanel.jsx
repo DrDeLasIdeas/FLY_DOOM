@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Activity,
   Crosshair,
@@ -83,6 +83,31 @@ export default function TrainingPanel({
   const currentTicSkip = ticSkip ?? policy.tic_skip ?? 2;
   const explPct = ((policy.exploration_rate ?? 0) * 100).toFixed(0);
 
+  const [fpsDraft, setFpsDraft] = useState(currentTargetFps);
+  const [skipDraft, setSkipDraft] = useState(currentTicSkip);
+  const speedTimerRef = useRef(null);
+
+  useEffect(() => {
+    setFpsDraft(currentTargetFps);
+  }, [currentTargetFps]);
+
+  useEffect(() => {
+    setSkipDraft(currentTicSkip);
+  }, [currentTicSkip]);
+
+  useEffect(() => {
+    return () => {
+      if (speedTimerRef.current) clearTimeout(speedTimerRef.current);
+    };
+  }, []);
+
+  const scheduleSpeedUpdate = (patch) => {
+    if (speedTimerRef.current) clearTimeout(speedTimerRef.current);
+    speedTimerRef.current = setTimeout(() => {
+      onUpdateSpeed?.(patch);
+    }, 120);
+  };
+
   const stats = [
     { label: "EPISODIOS", value: policy.episodes ?? 0, tone: "text-[#ffffff]" },
     { label: "RECOMP. MEDIA", value: (policy.avg_reward ?? 0).toFixed(2), tone: "text-[#34a853]" },
@@ -163,37 +188,45 @@ export default function TrainingPanel({
             <Gauge className="w-3 h-3" /> VELOCIDAD DE SIMULACIÓN
           </span>
           <span>
-            {currentTargetFps} Hz · Skip {currentTicSkip}x
+            {fpsDraft} Hz · Skip {skipDraft}x
           </span>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="space-y-1 text-[10px] text-[#c1c1c1]">
             <div className="flex justify-between">
               <span>Target FPS</span>
-              <span className="text-[#ffffff]">{currentTargetFps}</span>
+              <span className="text-[#ffffff]">{fpsDraft}</span>
             </div>
             <input
               type="range"
               min="5"
               max="60"
               step="5"
-              value={currentTargetFps}
-              onChange={(e) => onUpdateSpeed?.({ target_fps: Number(e.target.value) })}
+              value={fpsDraft}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setFpsDraft(val);
+                scheduleSpeedUpdate({ target_fps: val });
+              }}
               className="w-full accent-[#34a853]"
             />
           </label>
           <label className="space-y-1 text-[10px] text-[#c1c1c1]">
             <div className="flex justify-between">
               <span>Tic Skip</span>
-              <span className="text-[#ffffff]">{currentTicSkip}</span>
+              <span className="text-[#ffffff]">{skipDraft}</span>
             </div>
             <input
               type="range"
               min="1"
               max="8"
               step="1"
-              value={currentTicSkip}
-              onChange={(e) => onUpdateSpeed?.({ tic_skip: Number(e.target.value) })}
+              value={skipDraft}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setSkipDraft(val);
+                scheduleSpeedUpdate({ tic_skip: val });
+              }}
               className="w-full accent-[#448cff]"
             />
           </label>

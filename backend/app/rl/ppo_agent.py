@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 import os
 from dataclasses import dataclass
@@ -67,6 +68,7 @@ class PPOAgent(RLAgent):
         self.greedy: bool = False
         self.temperature: float = self.config.temperature
         self.loaded: bool = False
+        self._scenario_epoch: int = 0
 
         # Episode & lifetime telemetry
         self.episode: int = 0
@@ -109,21 +111,17 @@ class PPOAgent(RLAgent):
         *,
         load_if_exists: bool = True,
     ) -> None:
-        """Hot-swaps policy head & checkpoint path for a different ViZDoom scenario."""
+        """Hot-swaps policy network & checkpoint path cleanly without cross-scenario weight leaks."""
+        self._scenario_epoch += 1
         self.scenario_id = scenario_id
         self.action_labels = list(action_labels)
-        new_n = len(self.action_labels)
+        self.n_actions = len(self.action_labels)
         self.save_path = os.path.join(self.config.checkpoint_dir, f"ppo_{scenario_id}.pt")
         self.buffer.clear()
 
-        if new_n != self.n_actions:
-            self.n_actions = new_n
-            self.network = self._build_network(new_n)
-            self.optimizer = torch.optim.Adam(
-                self.network.parameters(), lr=self.config.lr, eps=1e-5
-            )
-        else:
-            self.n_actions = new_n
+        # Always rebuild clean weights before loading target scenario checkpoint
+        self.network = self._build_network(self.n_actions)
+        self.optimizer = torch.optim.Adam(self.network.parameters(), lr=self.config.lr, eps=1e-5)
 
         self.episode = 0
         self.total_steps = 0
@@ -140,6 +138,8 @@ class PPOAgent(RLAgent):
         self.value_loss = 0.0
         self.entropy = math.log(max(2, self.n_actions))
         self.exploration_rate = 1.0
+        self.approx_kl = 0.0
+        self.clip_fraction = 0.0
         self.history.clear()
         self.loaded = False
 
@@ -162,7 +162,7 @@ class PPOAgent(RLAgent):
         )
         max_ent = math.log(max(2, len(labels)))
         self.entropy = entropy
-        self.exploration_rate = float(np.clip(entropy / max_ent, 0.0, 1.0))
+        self.exploration_rate = 0.0 if use_greedy else float(np.clip(entropy / max_ent, 0.0, 1.0))
         self.total_steps += 1
         return ActionDecision(
             action_idx=idx,
@@ -174,6 +174,26 @@ class PPOAgent(RLAgent):
             entropy=entropy,
         )
 
+    def record_step(
+        self,
+        obs: np.ndarray,
+        decision: ActionDecision,
+        reward: float,
+        done: bool,
+    ) -> bool:
+        """Appends transition when on-policy training is active; returns True if rollout is full."""
+        if not self.training_enabled or self.greedy:
+            return False
+        self.buffer.add(
+            obs=obs,
+            action=decision.action_idx,
+            log_prob=decision.log_prob,
+            reward=reward,
+            done=done,
+            value=decision.value,
+        )
+        return len(self.buffer) >= self.config.rollout_steps
+
     def observe_transition(
         self,
         obs: np.ndarray,
@@ -183,32 +203,29 @@ class PPOAgent(RLAgent):
         *,
         next_obs: np.ndarray | None = None,
     ) -> float | None:
-        if not self.training_enabled:
-            return None
-        self.buffer.add(
-            obs=obs,
-            action=decision.action_idx,
-            log_prob=decision.log_prob,
-            reward=reward,
-            done=done,
-            value=decision.value,
-        )
-        if len(self.buffer) >= self.config.rollout_steps:
+        ready = self.record_step(obs, decision, reward, done)
+        if ready:
             bootstrap_obs = next_obs if next_obs is not None else obs
             return self.update(bootstrap_obs, done)
         return None
 
-    def update(self, last_obs: np.ndarray, last_done: bool) -> float:
-        if len(self.buffer) < 2:
-            self.buffer.clear()
-            return 0.0
+    def _optimize_rollout(
+        self,
+        network: ActorCriticCNN,
+        optimizer: torch.optim.Optimizer,
+        rollout: RolloutBuffer,
+        last_obs: np.ndarray,
+        last_done: bool,
+    ) -> dict[str, float]:
+        if len(rollout) < 2:
+            return {}
 
         with torch.no_grad():
             x = torch.as_tensor(last_obs, dtype=torch.float32, device=self.device).unsqueeze(0)
-            _, next_val = self.network(x)
+            _, next_val = network(x)
             last_value = float(next_val.item())
 
-        advantages, returns = self.buffer.compute_gae(
+        advantages, returns = rollout.compute_gae(
             last_value=last_value,
             last_done=last_done,
             gamma=self.config.gamma,
@@ -223,13 +240,13 @@ class PPOAgent(RLAgent):
         clips: list[float] = []
 
         for _ in range(max(1, self.config.update_epochs)):
-            for batch in self.buffer.iter_minibatches(
+            for batch in rollout.iter_minibatches(
                 advantages,
                 returns,
                 minibatch_size=self.config.minibatch_size,
                 device=self.device,
             ):
-                new_logp, entropy, new_values = self.network.evaluate_actions(
+                new_logp, entropy, new_values = network.evaluate_actions(
                     batch.obs, batch.actions, temperature=self.temperature
                 )
                 log_ratio = new_logp - batch.old_log_probs
@@ -252,29 +269,108 @@ class PPOAgent(RLAgent):
                 ent_loss = entropy.mean()
                 loss = pg_loss - self.config.ent_coef * ent_loss + self.config.vf_coef * v_loss
 
-                self.optimizer.zero_grad()
+                optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(self.network.parameters(), self.config.max_grad_norm)
-                self.optimizer.step()
+                nn.utils.clip_grad_norm_(network.parameters(), self.config.max_grad_norm)
+                optimizer.step()
 
                 total_losses.append(float(loss.item()))
                 pg_losses.append(float(pg_loss.item()))
                 v_losses.append(float(v_loss.item()))
                 entropies.append(float(ent_loss.item()))
 
-        self.buffer.clear()
-        self.updates += 1
+        if not total_losses:
+            return {}
 
-        if total_losses:
-            self.last_loss = float(np.mean(total_losses))
-            self.policy_loss = float(np.mean(pg_losses))
-            self.value_loss = float(np.mean(v_losses))
-            self.entropy = float(np.mean(entropies))
-            max_ent = math.log(max(2, self.n_actions))
-            self.exploration_rate = float(np.clip(self.entropy / max_ent, 0.0, 1.0))
-            self.approx_kl = float(np.mean(kls)) if kls else 0.0
-            self.clip_fraction = float(np.mean(clips)) if clips else 0.0
+        return {
+            "loss": float(np.mean(total_losses)),
+            "policy_loss": float(np.mean(pg_losses)),
+            "value_loss": float(np.mean(v_losses)),
+            "entropy": float(np.mean(entropies)),
+            "approx_kl": float(np.mean(kls)) if kls else 0.0,
+            "clip_fraction": float(np.mean(clips)) if clips else 0.0,
+        }
+
+    def _apply_metrics(self, metrics: dict[str, float]) -> float:
+        if not metrics:
+            return self.last_loss
+        self.updates += 1
+        self.last_loss = metrics["loss"]
+        self.policy_loss = metrics["policy_loss"]
+        self.value_loss = metrics["value_loss"]
+        self.entropy = metrics["entropy"]
+        max_ent = math.log(max(2, self.n_actions))
+        self.exploration_rate = (
+            0.0 if self.greedy else float(np.clip(self.entropy / max_ent, 0.0, 1.0))
+        )
+        self.approx_kl = metrics["approx_kl"]
+        self.clip_fraction = metrics["clip_fraction"]
         return self.last_loss
+
+    def update(self, last_obs: np.ndarray, last_done: bool) -> float:
+        """Synchronous PPO update (used by CLI trainer and unit tests)."""
+        if len(self.buffer) < 2:
+            self.buffer.clear()
+            return 0.0
+        snap = self.buffer.pop_snapshot()
+        metrics = self._optimize_rollout(
+            self.network, self.optimizer, snap, last_obs, last_done
+        )
+        return self._apply_metrics(metrics)
+
+    def prepare_async_update(
+        self, last_obs: np.ndarray, last_done: bool
+    ) -> dict[str, Any] | None:
+        """Snapshots weights, optimizer, and rollout so gradient updates run off the main loop."""
+        if len(self.buffer) < 2:
+            self.buffer.clear()
+            return None
+        return {
+            "epoch": self._scenario_epoch,
+            "n_actions": self.n_actions,
+            "net_state": copy.deepcopy(self.network.state_dict()),
+            "opt_state": copy.deepcopy(self.optimizer.state_dict()),
+            "rollout": self.buffer.pop_snapshot(),
+            "last_obs": np.array(last_obs, dtype=np.float32, copy=True),
+            "last_done": bool(last_done),
+        }
+
+    def run_shadow_update(self, job: dict[str, Any]) -> dict[str, Any]:
+        """Executes PPO minibatches on a private worker copy (thread-safe, lock-free)."""
+        shadow_net = self._build_network(int(job["n_actions"]))
+        shadow_net.load_state_dict(job["net_state"])
+        shadow_opt = torch.optim.Adam(shadow_net.parameters(), lr=self.config.lr, eps=1e-5)
+        try:
+            shadow_opt.load_state_dict(job["opt_state"])
+        except Exception:
+            pass
+        metrics = self._optimize_rollout(
+            shadow_net,
+            shadow_opt,
+            job["rollout"],
+            job["last_obs"],
+            job["last_done"],
+        )
+        return {
+            "epoch": job["epoch"],
+            "net_state": shadow_net.state_dict(),
+            "opt_state": shadow_opt.state_dict(),
+            "metrics": metrics,
+        }
+
+    def commit_shadow_update(self, result: dict[str, Any]) -> float:
+        """Atomically swaps updated weights onto the live network if scenario hasn't changed."""
+        if result.get("epoch") != self._scenario_epoch:
+            return self.last_loss
+        metrics = result.get("metrics") or {}
+        if not metrics:
+            return self.last_loss
+        self.network.load_state_dict(result["net_state"])
+        try:
+            self.optimizer.load_state_dict(result["opt_state"])
+        except Exception:
+            pass
+        return self._apply_metrics(metrics)
 
     def on_episode_end(self, summary: dict[str, Any]) -> float:
         self.episode += 1
@@ -334,7 +430,7 @@ class PPOAgent(RLAgent):
             "policy_loss": round(self.policy_loss, 4),
             "value_loss": round(self.value_loss, 4),
             "entropy": round(self.entropy, 4),
-            "exploration_rate": round(self.exploration_rate, 3),
+            "exploration_rate": round(0.0 if self.greedy else self.exploration_rate, 3),
             "approx_kl": round(self.approx_kl, 5),
             "clip_fraction": round(self.clip_fraction, 3),
             "training_enabled": self.training_enabled,
@@ -442,6 +538,7 @@ class PPOAgent(RLAgent):
             return False
 
     def reset(self) -> None:
+        self._scenario_epoch += 1
         self.network = self._build_network(self.n_actions)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=self.config.lr, eps=1e-5)
         self.buffer.clear()

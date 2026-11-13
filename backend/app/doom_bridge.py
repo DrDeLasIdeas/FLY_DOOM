@@ -44,6 +44,7 @@ class DoomFlyEnvironment:
             force_synthetic=effective_synthetic,
             skill=skill,
             render_overlay=self.render_overlay,
+            legacy_reset_step=True,
         )
 
     @property
