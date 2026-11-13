@@ -274,3 +274,57 @@ def test_async_shadow_ppo_update_and_gemma_neuromodulator_protocol(tmp_path):
     assert np.isfinite(loss)
     assert agent.updates == 1
 
+
+def test_saccadic_visual_search_rewards_sustained_turn_and_discovery():
+    from backend.app.scenarios.reward_shaper import CombatRewardShaper
+
+    shaper = CombatRewardShaper()
+    empty = {"present": 0.0, "offset": 0.0, "centered": 0.0}
+    spotted = {"present": 1.0, "offset": 0.65, "centered": 0.0}
+
+    # Idle or firing at empty wall is penalized
+    r_idle = shaper.shape(
+        action_name="IDLE", native_reward=0.0, health_delta=0.0,
+        ammo_before=26.0, ammo_delta=0.0, kills_added=0,
+        prev_overlay=empty, curr_overlay=empty,
+    )
+    assert r_idle < 0.0
+
+    # Sustained unidirectional sweep is rewarded
+    r_sweep1 = shaper.shape(
+        action_name="TURN_RIGHT", native_reward=0.0, health_delta=0.0,
+        ammo_before=26.0, ammo_delta=0.0, kills_added=0,
+        prev_overlay=empty, curr_overlay=empty,
+    )
+    r_sweep2 = shaper.shape(
+        action_name="TURN_RIGHT", native_reward=0.0, health_delta=0.0,
+        ammo_before=26.0, ammo_delta=0.0, kills_added=0,
+        prev_overlay=empty, curr_overlay=empty,
+    )
+    assert r_sweep2 > r_sweep1 > 0.02
+
+    # Useless L-R jitter while nothing is visible is penalized
+    r_jitter = shaper.shape(
+        action_name="TURN_LEFT", native_reward=0.0, health_delta=0.0,
+        ammo_before=26.0, ammo_delta=0.0, kills_added=0,
+        prev_overlay=empty, curr_overlay=empty,
+    )
+    assert r_jitter < 0.0
+
+    # Bringing an enemy into view gives a clear discovery bonus
+    r_found = shaper.shape(
+        action_name="TURN_LEFT", native_reward=0.0, health_delta=0.0,
+        ammo_before=26.0, ammo_delta=0.0, kills_added=0,
+        prev_overlay=empty, curr_overlay=spotted,
+    )
+    assert r_found >= 0.14
+
+    # Turning away and losing sight of an unkilled enemy is penalized
+    r_lost = shaper.shape(
+        action_name="TURN_LEFT", native_reward=0.0, health_delta=0.0,
+        ammo_before=26.0, ammo_delta=0.0, kills_added=0,
+        prev_overlay=spotted, curr_overlay=empty,
+    )
+    assert r_lost < -0.05
+
+

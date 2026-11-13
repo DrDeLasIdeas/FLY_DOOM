@@ -98,6 +98,8 @@ class SyntheticArenaAdapter(EnvironmentAdapter):
         self.kills = 0
         self.target_angle = 0.0
         self.target_state = self._overlay.empty()
+        if hasattr(self._reward_shaper, "reset_search_state"):
+            self._reward_shaper.reset_search_state()
 
     def _episode_banner(self) -> np.ndarray:
         frame = np.zeros((240, 320, 3), dtype=np.uint8)
