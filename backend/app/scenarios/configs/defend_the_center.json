@@ -1,0 +1,19 @@
+{
+  "id": "defend_the_center",
+  "name": "Defend the Center",
+  "description": "Arena circular 360°: girar hacia las amenazas entrantes y eliminarlas con precisión.",
+  "cfg_file": "defend_the_center.cfg",
+  "buttons": ["TURN_LEFT", "TURN_RIGHT", "ATTACK"],
+  "actions": [
+    {"name": "TURN_LEFT", "label": "Girar Izquierda", "buttons": [1, 0, 0]},
+    {"name": "TURN_RIGHT", "label": "Girar Derecha", "buttons": [0, 1, 0]},
+    {"name": "ATTACK", "label": "Disparar", "buttons": [0, 0, 1]},
+    {"name": "IDLE", "label": "Reposo", "buttons": [0, 0, 0]}
+  ],
+  "game_variables": ["AMMO2", "HEALTH"],
+  "episode_timeout": 900,
+  "default_skill": 3,
+  "ammo_max": 26.0,
+  "reward_shaper": "combat",
+  "is_combat": true
+}

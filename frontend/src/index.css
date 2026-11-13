@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* 1. Escala Base del Sistema */
+  --color-bg-primary: #212121;
+  --color-bg-pattern: #252525;
+  --color-bg-well: #181818;
+  --color-border: #383838;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #c1c1c1;
+  --color-accent: #4285f4;
+  --color-accent-light: #448cff;
+
+  /* 2. Sistema Semántico de 4 Colores */
+  --color-blue: #4285f4;
+  --color-blue-alpha: rgba(66, 133, 244, 0.15);
+  --color-yellow: #fbbc05;
+  --color-yellow-alpha: rgba(251, 188, 5, 0.15);
+  --color-green: #34a853;
+  --color-green-alpha: rgba(52, 168, 83, 0.15);
+  --color-red: #ea4335;
+  --color-red-alpha: rgba(234, 67, 53, 0.15);
+}
+
+@layer base {
+  html,
+  body {
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  input[type="range"] {
+    accent-color: var(--color-accent);
+  }
+}
+
+@layer components {
+  .nd-panel {
+    background-color: var(--color-bg-pattern);
+    border: 1px solid var(--color-border);
+    border-radius: 0.75rem;
+  }
+
+  .nd-well {
+    background-color: var(--color-bg-well);
+    border: 1px solid var(--color-border);
+    border-radius: 0.625rem;
+  }
+
+  .nd-pill-blue {
+    background-color: var(--color-blue-alpha);
+    border: 1px solid rgba(66, 133, 244, 0.45);
+    color: var(--color-accent-light);
+  }
+
+  .nd-pill-yellow {
+    background-color: var(--color-yellow-alpha);
+    border: 1px solid rgba(251, 188, 5, 0.45);
+    color: var(--color-yellow);
+  }
+
+  .nd-pill-green {
+    background-color: var(--color-green-alpha);
+    border: 1px solid rgba(52, 168, 83, 0.45);
+    color: var(--color-green);
+  }
+
+  .nd-pill-red {
+    background-color: var(--color-red-alpha);
+    border: 1px solid rgba(234, 67, 53, 0.45);
+    color: var(--color-red);
+  }
+}

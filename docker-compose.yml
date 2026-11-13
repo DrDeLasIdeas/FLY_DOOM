@@ -1,0 +1,31 @@
+services:
+  neurodoom-core:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: neurodoom-core
+    ports:
+      - "8000:8000"
+    environment:
+      - CONNECTOME_PATH=/app/data/flywire_subconnectome.npz
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - OLLAMA_MODEL=gemma3:4b
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  neurodoom-ui:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: neurodoom-ui
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_WS_URL=ws://localhost:8000/ws/telemetry
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - neurodoom-core
+    restart: unless-stopped

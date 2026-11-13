@@ -1,0 +1,20 @@
+{
+  "id": "health_gathering",
+  "name": "Health Gathering",
+  "description": "Navegación en suelo ácido: recolectar botiquines para sobrevivir sin armas.",
+  "cfg_file": "health_gathering.cfg",
+  "buttons": ["TURN_LEFT", "TURN_RIGHT", "MOVE_FORWARD"],
+  "actions": [
+    {"name": "TURN_LEFT", "label": "Girar Izquierda", "buttons": [1, 0, 0]},
+    {"name": "TURN_RIGHT", "label": "Girar Derecha", "buttons": [0, 1, 0]},
+    {"name": "MOVE_FORWARD", "label": "Avanzar", "buttons": [0, 0, 1]},
+    {"name": "TURN_LEFT_FWD", "label": "Girar Izq + Avanzar", "buttons": [1, 0, 1]},
+    {"name": "TURN_RIGHT_FWD", "label": "Girar Der + Avanzar", "buttons": [0, 1, 1]}
+  ],
+  "game_variables": ["HEALTH"],
+  "episode_timeout": 1200,
+  "default_skill": 3,
+  "ammo_max": 0.0,
+  "reward_shaper": "navigation",
+  "is_combat": false
+}
