@@ -5,6 +5,7 @@ export function useRetroAudio(telemetry) {
   const engineRef = useRef(null);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [musicEnabled, setMusicEnabled] = useState(true);
+  const [sfxEnabled, setSfxEnabled] = useState(true);
   const [volume, setVolumeState] = useState(0.45);
   const prevRef = useRef(null);
 
@@ -24,12 +25,12 @@ export function useRetroAudio(telemetry) {
     const eng = engineRef.current;
     if (!eng || !audioEnabled) return;
     const running = telemetry?.system_running ?? true;
-    if (!running) {
+    if (!running || !musicEnabled) {
       eng._stopSequencer();
     } else {
       eng._startSequencer();
     }
-  }, [audioEnabled, telemetry?.system_running]);
+  }, [audioEnabled, musicEnabled, telemetry?.system_running]);
 
   // Trigger reactive retro SFX from live telemetry deltas
   useEffect(() => {
@@ -44,7 +45,7 @@ export function useRetroAudio(telemetry) {
 
     const prev = prevRef.current;
     prevRef.current = curr;
-    if (!prev || !audioEnabled) return;
+    if (!prev || !audioEnabled || !sfxEnabled) return;
 
     const eng = engineRef.current;
     if (!eng) return;
@@ -68,6 +69,7 @@ export function useRetroAudio(telemetry) {
     }
   }, [
     audioEnabled,
+    sfxEnabled,
     telemetry?.total_shots,
     telemetry?.total_kills,
     telemetry?.health,
@@ -79,6 +81,12 @@ export function useRetroAudio(telemetry) {
     const eng = engineRef.current;
     if (!eng) return;
     const next = !audioEnabled;
+    if (next) {
+      eng.setMusicEnabled(true);
+      eng.setSfxEnabled(true);
+      setMusicEnabled(true);
+      setSfxEnabled(true);
+    }
     const ok = eng.setEnabled(next);
     setAudioEnabled(ok);
   }, [audioEnabled]);
@@ -86,10 +94,47 @@ export function useRetroAudio(telemetry) {
   const toggleMusic = useCallback(() => {
     const eng = engineRef.current;
     if (!eng) return;
+    if (!audioEnabled) {
+      eng.setMusicEnabled(true);
+      eng.setSfxEnabled(false);
+      setMusicEnabled(true);
+      setSfxEnabled(false);
+      const ok = eng.setEnabled(true);
+      setAudioEnabled(ok);
+      return;
+    }
     const next = !musicEnabled;
     eng.setMusicEnabled(next);
     setMusicEnabled(next);
-  }, [musicEnabled]);
+    if (!next && !sfxEnabled) {
+      eng.setEnabled(false);
+      setAudioEnabled(false);
+    }
+  }, [audioEnabled, musicEnabled, sfxEnabled]);
+
+  const toggleSfx = useCallback(() => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    if (!audioEnabled) {
+      eng.setMusicEnabled(false);
+      eng.setSfxEnabled(true);
+      setMusicEnabled(false);
+      setSfxEnabled(true);
+      const ok = eng.setEnabled(true);
+      setAudioEnabled(ok);
+      if (ok) eng.playShot();
+      return;
+    }
+    const next = !sfxEnabled;
+    eng.setSfxEnabled(next);
+    setSfxEnabled(next);
+    if (next) {
+      eng.playShot();
+    } else if (!musicEnabled) {
+      eng.setEnabled(false);
+      setAudioEnabled(false);
+    }
+  }, [audioEnabled, sfxEnabled, musicEnabled]);
 
   const setVolume = useCallback((val) => {
     const eng = engineRef.current;
@@ -105,9 +150,11 @@ export function useRetroAudio(telemetry) {
   return {
     audioEnabled,
     musicEnabled,
+    sfxEnabled,
     volume,
     toggleAudio,
     toggleMusic,
+    toggleSfx,
     setVolume,
     triggerDopamineSfx,
   };

@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import {
   Crosshair,
   Maximize2,
+  Music,
   Pause,
   Play,
   Power,
@@ -54,10 +55,16 @@ export default function FullscreenArena({
   onTraining,
   onSystemControl,
   audioEnabled = false,
+  musicEnabled = true,
+  sfxEnabled = true,
   onToggleAudio,
+  onToggleMusic,
+  onToggleSfx,
   onExit,
   onRequestBrowserFullscreen,
 }) {
+  const isMusicActive = audioEnabled && musicEnabled;
+  const isSfxActive = audioEnabled && sfxEnabled;
   const { events, flash } = useKillFeed(telemetry);
   const policy = telemetry?.policy;
   const rates = telemetry?.rates ?? {};
@@ -128,18 +135,44 @@ export default function FullscreenArena({
           <span className="px-2 py-1 rounded bg-slate-900 border border-rose-500/40 text-rose-300">
             BAJAS {telemetry.total_kills ?? 0}
           </span>
-          <button
-            onClick={onToggleAudio}
-            title="Prender / Apagar música y efectos retro DOOM (sin copyright)"
-            className={`flex items-center gap-1 px-2.5 py-1 rounded border font-bold transition ${
-              audioEnabled
-                ? "bg-emerald-500/20 border-emerald-400 text-emerald-300"
-                : "bg-slate-900 border-slate-700 text-slate-300 hover:border-cyan-500/60"
-            }`}
-          >
-            {audioEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-            {audioEnabled ? "Audio ON" : "Audio OFF"}
-          </button>
+          <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+            <button
+              onClick={onToggleAudio}
+              title="Prender / Apagar todo el audio retro"
+              className={`flex items-center gap-1 px-2 py-1 rounded font-bold transition ${
+                audioEnabled
+                  ? "bg-emerald-500/20 text-emerald-300"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {audioEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+              {audioEnabled ? "Audio" : "Mute"}
+            </button>
+            <button
+              onClick={onToggleMusic}
+              title="Prender / Apagar música retro"
+              className={`flex items-center gap-1 px-2 py-1 rounded transition ${
+                isMusicActive
+                  ? "bg-cyan-500/20 text-cyan-300 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Music className="w-3.5 h-3.5" />
+              Música {isMusicActive ? "ON" : "OFF"}
+            </button>
+            <button
+              onClick={onToggleSfx}
+              title="Prender / Apagar sonido de disparos"
+              className={`flex items-center gap-1 px-2 py-1 rounded transition ${
+                isSfxActive
+                  ? "bg-rose-500/20 text-rose-300 font-bold"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Crosshair className="w-3.5 h-3.5" />
+              Disparos {isSfxActive ? "ON" : "OFF"}
+            </button>
+          </div>
           <button
             onClick={() => onSystemControl?.({ running: !systemRunning, save: true })}
             className={`flex items-center gap-1 px-2.5 py-1 rounded border font-bold transition ${

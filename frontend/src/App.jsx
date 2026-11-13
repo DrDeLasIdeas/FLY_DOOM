@@ -34,8 +34,10 @@ export default function App() {
   const {
     audioEnabled,
     musicEnabled,
+    sfxEnabled,
     toggleAudio,
     toggleMusic,
+    toggleSfx,
     triggerDopamineSfx,
   } = useRetroAudio(telemetry);
 
@@ -69,8 +71,10 @@ export default function App() {
         onSystemControl={controlSystem}
         audioEnabled={audioEnabled}
         musicEnabled={musicEnabled}
+        sfxEnabled={sfxEnabled}
         onToggleAudio={toggleAudio}
         onToggleMusic={toggleMusic}
+        onToggleSfx={toggleSfx}
       />
       <main className="flex-1 bg-[#212121]">
         {mode === "conference" ? (
@@ -102,7 +106,11 @@ export default function App() {
             onTraining={sendTraining}
             onSystemControl={controlSystem}
             audioEnabled={audioEnabled}
+            musicEnabled={musicEnabled}
+            sfxEnabled={sfxEnabled}
             onToggleAudio={toggleAudio}
+            onToggleMusic={toggleMusic}
+            onToggleSfx={toggleSfx}
             onExit={() => setMode("arena")}
             onRequestBrowserFullscreen={requestBrowserFullscreen}
           />

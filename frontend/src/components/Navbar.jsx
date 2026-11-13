@@ -2,6 +2,7 @@ import React from "react";
 import {
   BrainCircuit,
   Brain,
+  Crosshair,
   Presentation,
   Activity,
   Maximize2,
@@ -23,10 +24,14 @@ export default function Navbar({
   onSystemControl,
   audioEnabled = false,
   musicEnabled = true,
+  sfxEnabled = true,
   onToggleAudio,
   onToggleMusic,
+  onToggleSfx,
 }) {
   const systemRunning = telemetry?.system_running ?? true;
+  const isMusicActive = audioEnabled && musicEnabled;
+  const isSfxActive = audioEnabled && sfxEnabled;
 
   return (
     <header className="border-b border-[#383838] bg-[#252525] px-6 py-3 flex flex-wrap items-center justify-between gap-4">
@@ -115,60 +120,76 @@ export default function Navbar({
           </div>
         )}
 
-        {/* Controles de Sonido y Música Retro DOOM (100% Web Audio sin copyright) */}
-        <div className="flex items-center gap-1">
+        {/* Controles independientes: Todo / Música / Disparos (100% Web Audio sin copyright) */}
+        <div className="flex items-center gap-1 bg-[#181818] p-1 rounded-xl border border-[#383838]">
           <button
             type="button"
             onClick={onToggleAudio}
-            title="Encender o apagar música industrial retro y efectos de combate (100% sintetizados sin copyright)"
+            title="Encender o apagar todo el audio retro (música + disparos)"
             style={{
               backgroundColor: audioEnabled
                 ? "rgba(52, 168, 83, 0.18)"
-                : "rgba(24, 24, 24, 0.9)",
+                : "transparent",
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-semibold transition ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-semibold transition ${
               audioEnabled
                 ? "border-[#34a853] text-[#34a853] hover:brightness-110"
-                : "border-[#383838] text-[#c1c1c1] hover:border-[#448cff] hover:text-[#ffffff]"
+                : "border-transparent text-[#c1c1c1] hover:text-[#ffffff] hover:bg-[#252525]"
             }`}
           >
             {audioEnabled ? (
-              <>
-                <Volume2 className="w-3.5 h-3.5" />
-                Audio Retro: ON
-              </>
+              <Volume2 className="w-3.5 h-3.5" />
             ) : (
-              <>
-                <VolumeX className="w-3.5 h-3.5" />
-                Audio Retro: OFF
-              </>
+              <VolumeX className="w-3.5 h-3.5" />
             )}
+            <span>{audioEnabled ? "Audio ON" : "Audio OFF"}</span>
           </button>
 
-          {audioEnabled && (
-            <button
-              type="button"
-              onClick={onToggleMusic}
-              title={
-                musicEnabled
-                  ? "Silenciar solo la música manteniendo los efectos de disparo/bajas"
-                  : "Activar música industrial retro"
-              }
-              style={{
-                backgroundColor: musicEnabled
-                  ? "rgba(66, 133, 244, 0.18)"
-                  : "rgba(24, 24, 24, 0.9)",
-              }}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border transition ${
-                musicEnabled
-                  ? "border-[#4285f4]/70 text-[#448cff]"
-                  : "border-[#383838] text-[#c1c1c1]"
-              }`}
-            >
-              <Music className="w-3.5 h-3.5" />
-              {musicEnabled ? "Música" : "Solo SFX"}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onToggleMusic}
+            title={
+              isMusicActive
+                ? "Apagar música de fondo retro"
+                : "Encender música de fondo retro"
+            }
+            style={{
+              backgroundColor: isMusicActive
+                ? "rgba(66, 133, 244, 0.18)"
+                : "transparent",
+            }}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border transition ${
+              isMusicActive
+                ? "border-[#4285f4]/70 text-[#448cff] font-semibold"
+                : "border-transparent text-[#c1c1c1] hover:text-[#ffffff] hover:bg-[#252525]"
+            }`}
+          >
+            <Music className="w-3.5 h-3.5" />
+            <span>Música {isMusicActive ? "ON" : "OFF"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onToggleSfx}
+            title={
+              isSfxActive
+                ? "Apagar sonidos de disparos y bajas"
+                : "Encender sonidos de disparos y bajas"
+            }
+            style={{
+              backgroundColor: isSfxActive
+                ? "rgba(234, 67, 53, 0.18)"
+                : "transparent",
+            }}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border transition ${
+              isSfxActive
+                ? "border-[#ea4335]/70 text-[#ea4335] font-semibold"
+                : "border-transparent text-[#c1c1c1] hover:text-[#ffffff] hover:bg-[#252525]"
+            }`}
+          >
+            <Crosshair className="w-3.5 h-3.5" />
+            <span>Disparos {isSfxActive ? "ON" : "OFF"}</span>
+          </button>
         </div>
 
         <button

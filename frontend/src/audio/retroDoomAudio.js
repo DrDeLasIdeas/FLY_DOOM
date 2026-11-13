@@ -133,6 +133,17 @@ export class RetroDoomAudioEngine {
     }
   }
 
+  setSfxEnabled(sfxOn) {
+    this.sfxEnabled = Boolean(sfxOn);
+    if (this.ctx && this.sfxGain) {
+      this.sfxGain.gain.setTargetAtTime(
+        this.sfxEnabled ? 0.85 : 0.0,
+        this.ctx.currentTime,
+        0.02
+      );
+    }
+  }
+
   setVolume(vol) {
     this.volume = Math.max(0.0, Math.min(1.0, Number(vol) || 0));
     if (this.ctx && this.masterGain && this.enabled) {
