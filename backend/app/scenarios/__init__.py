@@ -2,18 +2,22 @@
 
 from .factory import ScenarioFactory
 from .registry import ScenarioRegistry
-from .reward_shaper import (
+from . reward_shaper import (
+    AssaultRewardShaper,
     BasicRewardShaper,
     CombatRewardShaper,
     CorridorRewardShaper,
+    DodgeRewardShaper,
     NavigationRewardShaper,
     create_reward_shaper,
 )
 
 __all__ = [
+    "AssaultRewardShaper",
     "BasicRewardShaper",
     "CombatRewardShaper",
     "CorridorRewardShaper",
+    "DodgeRewardShaper",
     "NavigationRewardShaper",
     "ScenarioFactory",
     "ScenarioRegistry",

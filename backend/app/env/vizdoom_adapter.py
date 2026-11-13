@@ -50,6 +50,7 @@ class ViZDoomEnvironmentAdapter(EnvironmentAdapter):
         self.last_health = 100.0
         self.last_ammo = self.ammo_max
         self._last_killcount = 0
+        self._last_hitcount = 0
         self.shots_fired = 0
         self.shots_hit = 0
         self.total_shots = 0
@@ -62,15 +63,29 @@ class ViZDoomEnvironmentAdapter(EnvironmentAdapter):
         self._fallback: SyntheticArenaAdapter | None = None
 
         self.game = vzd.DoomGame()
-        if scenario.custom_cfg_path and os.path.exists(scenario.custom_cfg_path):
-            cfg_path = scenario.custom_cfg_path
-        elif os.path.isabs(scenario.cfg_file) and os.path.exists(scenario.cfg_file):
-            cfg_path = scenario.cfg_file
+        if scenario.use_bundled_freedoom:
+            fwad = os.path.join(os.path.dirname(vzd.__file__), "freedoom2.wad")
+            self.game.set_doom_game_path(fwad)
+            self.game.set_doom_scenario_path(fwad)
         else:
-            cfg_path = os.path.join(vzd.scenarios_path, scenario.cfg_file)
-        self.game.load_config(cfg_path)
-        if scenario.custom_wad_path and os.path.exists(scenario.custom_wad_path):
-            self.game.set_doom_scenario_path(scenario.custom_wad_path)
+            if scenario.custom_cfg_path and os.path.exists(scenario.custom_cfg_path):
+                cfg_path = scenario.custom_cfg_path
+            elif os.path.isabs(scenario.cfg_file) and os.path.exists(scenario.cfg_file):
+                cfg_path = scenario.cfg_file
+            else:
+                cfg_path = os.path.join(vzd.scenarios_path, scenario.cfg_file)
+            self.game.load_config(cfg_path)
+            if scenario.custom_wad_path and os.path.exists(scenario.custom_wad_path):
+                self.game.set_doom_scenario_path(scenario.custom_wad_path)
+
+        if scenario.doom_map:
+            self.game.set_doom_map(scenario.doom_map)
+        if scenario.episode_start_time is not None:
+            self.game.set_episode_start_time(max(0, int(scenario.episode_start_time)))
+        if scenario.living_reward is not None:
+            self.game.set_living_reward(float(scenario.living_reward))
+        if scenario.death_penalty is not None:
+            self.game.set_death_penalty(float(scenario.death_penalty))
 
         # Enforce consistent RGB24 320x240 visual buffer across all scenarios
         self.game.set_screen_resolution(vzd.ScreenResolution.RES_320X240)
@@ -94,12 +109,13 @@ class ViZDoomEnvironmentAdapter(EnvironmentAdapter):
                 self.game.add_available_game_variable(getattr(vzd.GameVariable, var_name))
 
         self.game.init()
-        ammo, health, killcount = self._query_engine_variables()
+        ammo, health, killcount, hitcount = self._query_engine_variables()
         if self._scenario.is_combat and ammo > self.ammo_max:
             self.ammo_max = ammo
         self.last_ammo = ammo
         self.last_health = health
         self._last_killcount = killcount
+        self._last_hitcount = hitcount
 
     @property
     def scenario(self) -> ScenarioConfig:
@@ -201,6 +217,7 @@ class ViZDoomEnvironmentAdapter(EnvironmentAdapter):
         self.last_health = 100.0
         self.last_ammo = self.ammo_max
         self._last_killcount = 0
+        self._last_hitcount = 0
         self.episode_reward = 0.0
         self.episode_steps = 0
         self.shots_fired = 0
@@ -232,31 +249,36 @@ class ViZDoomEnvironmentAdapter(EnvironmentAdapter):
         )
         return frame
 
-    def _query_engine_variables(self) -> tuple[float, float, int]:
-        """Queries AMMO2, HEALTH, and KILLCOUNT directly from ViZDoom engine (works on terminal steps)."""
+    def _query_engine_variables(self) -> tuple[float, float, int, int]:
+        """Queries weapon ammo, health, kills, and bullet/rocket hits directly from ViZDoom."""
         ammo = self.last_ammo
         health = self.last_health
         killcount = self._last_killcount
+        hitcount = self._last_hitcount
         try:
             if self._scenario.is_combat:
-                ammo = float(self.game.get_game_variable(vzd.GameVariable.AMMO2))
+                sel_ammo = float(self.game.get_game_variable(vzd.GameVariable.SELECTED_WEAPON_AMMO))
+                ammo2 = float(self.game.get_game_variable(vzd.GameVariable.AMMO2))
+                ammo = sel_ammo if sel_ammo >= 0.0 else max(0.0, ammo2)
             else:
                 ammo = 0.0
             health = max(0.0, float(self.game.get_game_variable(vzd.GameVariable.HEALTH)))
             killcount = max(0, int(round(self.game.get_game_variable(vzd.GameVariable.KILLCOUNT))))
+            hitcount = max(0, int(round(self.game.get_game_variable(vzd.GameVariable.HITCOUNT))))
         except Exception:
             pass
-        return ammo, health, killcount
+        return ammo, health, killcount, hitcount
 
     def _prime_new_episode(self) -> None:
         self._reset_counters()
         self.game.new_episode()
-        ammo, health, killcount = self._query_engine_variables()
+        ammo, health, killcount, hitcount = self._query_engine_variables()
         if self._scenario.is_combat and ammo > self.ammo_max:
             self.ammo_max = ammo
         self.last_ammo = ammo
         self.last_health = health
         self._last_killcount = killcount
+        self._last_hitcount = hitcount
         state = self.game.get_state()
         if state is not None and state.screen_buffer is not None:
             self.last_frame = state.screen_buffer.copy()
@@ -356,10 +378,11 @@ class ViZDoomEnvironmentAdapter(EnvironmentAdapter):
             ammo_before = self.last_ammo
             health_before = self.last_health
             killcount_before = self._last_killcount
+            hitcount_before = self._last_hitcount
 
             native_reward = float(self.game.make_action(spec.buttons, self.tic_skip))
             finished_now = bool(self.game.is_episode_finished())
-            ammo, health, killcount = self._query_engine_variables()
+            ammo, health, killcount, hitcount = self._query_engine_variables()
             if self._scenario.is_combat and ammo > self.ammo_max:
                 self.ammo_max = ammo
 
@@ -375,13 +398,17 @@ class ViZDoomEnvironmentAdapter(EnvironmentAdapter):
             ammo_delta = max(0.0, ammo_before - ammo)
             shots = int(round(ammo_delta)) if "ATTACK" in resolved_name else 0
             kills_added = max(0, killcount - killcount_before) if self._scenario.is_combat else 0
+            raw_hits = max(0, hitcount - hitcount_before) if self._scenario.is_combat else 0
+            hits_added = max(kills_added, raw_hits)
 
             if kills_added > 0:
-                shots = max(shots, kills_added)
                 self.kills += kills_added
                 self.total_kills += kills_added
-                self.shots_hit += kills_added
-                self.total_hits += kills_added
+
+            if hits_added > 0:
+                shots = max(shots, hits_added)
+                self.shots_hit += hits_added
+                self.total_hits += hits_added
 
             if shots > 0:
                 self.shots_fired += shots
@@ -390,6 +417,7 @@ class ViZDoomEnvironmentAdapter(EnvironmentAdapter):
             self.last_health = health
             self.last_ammo = ammo
             self._last_killcount = killcount
+            self._last_hitcount = hitcount
             curr_overlay = (
                 self._overlay.detect(rgb_frame, labels, is_combat=self._scenario.is_combat)
                 if not finished_now
@@ -406,6 +434,7 @@ class ViZDoomEnvironmentAdapter(EnvironmentAdapter):
                 kills_added=kills_added,
                 prev_overlay=prev_overlay,
                 curr_overlay=curr_overlay,
+                hits_added=hits_added,
             )
             self.episode_reward += shaped
             self.episode_steps += 1

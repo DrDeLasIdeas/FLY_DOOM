@@ -105,6 +105,7 @@ export default function App() {
             history={history}
             onTraining={sendTraining}
             onSystemControl={controlSystem}
+            onSwitchScenario={switchScenario}
             audioEnabled={audioEnabled}
             musicEnabled={musicEnabled}
             sfxEnabled={sfxEnabled}

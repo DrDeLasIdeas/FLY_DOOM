@@ -7,8 +7,11 @@ import numpy as np
 
 MONSTER_LABELS = {
     "Demon",
+    "Spectre",
     "DoomImp",
+    "StealthDoomImp",
     "ZombieMan",
+    "Zombieman",
     "ShotgunGuy",
     "ChaingunGuy",
     "HellKnight",
@@ -22,6 +25,16 @@ MONSTER_LABELS = {
     "Archvile",
     "SpiderMastermind",
     "Cyberdemon",
+    "WolfensteinSS",
+    "MarineChainsawVzd",
+    "MarineFistVzd",
+    "MarinePistolVzd",
+    "MarineShotgunVzd",
+    "MarineSSGVzd",
+    "MarineChaingunVzd",
+    "MarineRocketVzd",
+    "MarinePlasmaVzd",
+    "MarineBFGVzd",
 }
 
 

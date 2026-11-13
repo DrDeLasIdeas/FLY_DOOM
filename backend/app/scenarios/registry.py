@@ -43,7 +43,7 @@ class ScenarioRegistry:
             id=str(raw["id"]),
             name=str(raw.get("name", raw["id"])),
             description=str(raw.get("description", "")),
-            cfg_file=str(raw["cfg_file"]),
+            cfg_file=str(raw.get("cfg_file", "")),
             buttons=[str(b) for b in raw["buttons"]],
             actions=actions,
             game_variables=[str(v) for v in raw.get("game_variables", ["AMMO2", "HEALTH"])],
@@ -52,6 +52,23 @@ class ScenarioRegistry:
             ammo_max=float(raw.get("ammo_max", 26.0)),
             reward_shaper=str(raw.get("reward_shaper", "combat")),
             is_combat=bool(raw.get("is_combat", True)),
+            doom_map=raw.get("doom_map"),
+            use_bundled_freedoom=bool(raw.get("use_bundled_freedoom", False)),
+            episode_start_time=(
+                int(raw["episode_start_time"])
+                if raw.get("episode_start_time") is not None
+                else None
+            ),
+            living_reward=(
+                float(raw["living_reward"])
+                if raw.get("living_reward") is not None
+                else None
+            ),
+            death_penalty=(
+                float(raw["death_penalty"])
+                if raw.get("death_penalty") is not None
+                else None
+            ),
             custom_cfg_path=raw.get("custom_cfg_path"),
             custom_wad_path=raw.get("custom_wad_path"),
         )

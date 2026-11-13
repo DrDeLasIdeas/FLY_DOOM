@@ -42,6 +42,11 @@ class ScenarioConfig:
     ammo_max: float = 26.0
     reward_shaper: str = "combat"
     is_combat: bool = True
+    doom_map: str | None = None
+    use_bundled_freedoom: bool = False
+    episode_start_time: int | None = None
+    living_reward: float | None = None
+    death_penalty: float | None = None
     custom_cfg_path: str | None = None
     custom_wad_path: str | None = None
 
@@ -127,6 +132,7 @@ class RewardShaper(ABC):
         kills_added: int,
         prev_overlay: dict[str, Any],
         curr_overlay: dict[str, Any],
+        hits_added: int = 0,
     ) -> float:
         """Computes a bounded shaped reward signal for the current transition."""
 

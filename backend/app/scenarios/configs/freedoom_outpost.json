@@ -1,0 +1,33 @@
+{
+  "id": "freedoom_outpost",
+  "name": "Campaña Map04: Puesto Hostil",
+  "description": "Nivel DOOM con DoomImps, ShotgunGuys y LostSouls visibles desde el inicio y recogida de escopeta.",
+  "cfg_file": "freedoom2.wad:map04",
+  "use_bundled_freedoom": true,
+  "doom_map": "map04",
+  "living_reward": 0.02,
+  "death_penalty": 20.0,
+  "buttons": [
+    "MOVE_LEFT",
+    "MOVE_RIGHT",
+    "ATTACK",
+    "MOVE_FORWARD",
+    "TURN_LEFT",
+    "TURN_RIGHT"
+  ],
+  "actions": [
+    {"name": "TURN_LEFT", "label": "Girar Izquierda", "buttons": [0, 0, 0, 0, 1, 0]},
+    {"name": "TURN_RIGHT", "label": "Girar Derecha", "buttons": [0, 0, 0, 0, 0, 1]},
+    {"name": "MOVE_FORWARD", "label": "Avanzar", "buttons": [0, 0, 0, 1, 0, 0]},
+    {"name": "MOVE_LEFT", "label": "Strafe Izquierda", "buttons": [1, 0, 0, 0, 0, 0]},
+    {"name": "MOVE_RIGHT", "label": "Strafe Derecha", "buttons": [0, 1, 0, 0, 0, 0]},
+    {"name": "ATTACK", "label": "Disparar", "buttons": [0, 0, 1, 0, 0, 0]},
+    {"name": "FORWARD_ATTACK", "label": "Avanzar + Disparar", "buttons": [0, 0, 1, 1, 0, 0]}
+  ],
+  "game_variables": ["SELECTED_WEAPON_AMMO", "HEALTH", "KILLCOUNT", "HITCOUNT"],
+  "episode_timeout": 1500,
+  "default_skill": 3,
+  "ammo_max": 50.0,
+  "reward_shaper": "assault",
+  "is_combat": true
+}

@@ -54,6 +54,7 @@ export default function FullscreenArena({
   history = [],
   onTraining,
   onSystemControl,
+  onSwitchScenario,
   audioEnabled = false,
   musicEnabled = true,
   sfxEnabled = true,
@@ -65,6 +66,7 @@ export default function FullscreenArena({
 }) {
   const isMusicActive = audioEnabled && musicEnabled;
   const isSfxActive = audioEnabled && sfxEnabled;
+  const scenarios = telemetry?.scenario?.available_scenarios || [];
   const { events, flash } = useKillFeed(telemetry);
   const policy = telemetry?.policy;
   const rates = telemetry?.rates ?? {};
@@ -121,6 +123,20 @@ export default function FullscreenArena({
           <span className="text-[10px] font-mono px-2 py-0.5 rounded border border-fuchsia-500/40 text-fuchsia-300">
             {telemetry.arena_mode} · {telemetry.actual_fps ?? 30} FPS
           </span>
+          {scenarios.length > 0 && (
+            <select
+              value={telemetry.scenario?.id || "defend_the_center"}
+              onChange={(e) => onSwitchScenario?.(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-[11px] font-mono text-cyan-200 focus:outline-none focus:border-cyan-400"
+              title="Cambiar escenario de ViZDoom en caliente"
+            >
+              {scenarios.map((sc) => (
+                <option key={sc.id} value={sc.id}>
+                  {sc.name}
+                </option>
+              ))}
+            </select>
+          )}
           <span className="hidden sm:inline text-[10px] font-mono text-slate-400">
             EP #{telemetry.episode} · {telemetry.action_name}
           </span>

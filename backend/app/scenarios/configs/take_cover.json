@@ -1,0 +1,18 @@
+{
+  "id": "take_cover",
+  "name": "Emboscada de Imps (Evasión)",
+  "description": "Escuadrón de DoomImps lanzando bolas de fuego al frente: esquiva lateral continua para sobrevivir.",
+  "cfg_file": "take_cover.cfg",
+  "buttons": ["MOVE_LEFT", "MOVE_RIGHT"],
+  "actions": [
+    {"name": "MOVE_LEFT", "label": "Esquivar Izquierda", "buttons": [1, 0]},
+    {"name": "MOVE_RIGHT", "label": "Esquivar Derecha", "buttons": [0, 1]},
+    {"name": "IDLE", "label": "Mantener Posición", "buttons": [0, 0]}
+  ],
+  "game_variables": ["HEALTH"],
+  "episode_timeout": 1200,
+  "default_skill": 4,
+  "ammo_max": 0.0,
+  "reward_shaper": "dodge",
+  "is_combat": false
+}

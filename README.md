@@ -149,13 +149,20 @@ FLY_DOOM/
 
 Incluidos de fábrica en `backend/app/scenarios/configs/`:
 
-| ID del escenario | Archivo `.cfg` | Acciones discretas | Tipo |
+| ID del escenario | Archivo / Mapa | Acciones | Monstruos / Objetivo |
 | --- | --- | --- | --- |
-| `defend_the_center` | `defend_the_center.cfg` | 4 (`TURN_LEFT`, `TURN_RIGHT`, `ATTACK`, `IDLE`) | Combate 360° |
-| `basic` | `basic.cfg` | 4 (`MOVE_LEFT`, `MOVE_RIGHT`, `ATTACK`, `IDLE`) | Combate básico |
-| `defend_the_line` | `defend_the_line.cfg` | 4 (`TURN_LEFT`, `TURN_RIGHT`, `ATTACK`, `IDLE`) | Defensa en línea |
-| `deadly_corridor` | `deadly_corridor.cfg` | 7 (`TURN_*`, `MOVE_*`, `ATTACK`, `FORWARD_ATTACK`) | Navegación + Combate |
-| `health_gathering` | `health_gathering.cfg` | 5 (`TURN_LEFT`, `TURN_RIGHT`, `MOVE_FORWARD`, `TURN_*_FWD`) | Recolección / Supervivencia |
+| `defend_the_center` | `defend_the_center.cfg` | 4 | Demonios y Zombiemen en 360° |
+| `basic` | `basic.cfg` | 4 | Cacodemon estático / puntería rápida |
+| `rocket_basic` | `rocket_basic.cfg` | 4 | Cacodemon con lanzacohetes (`+sv_noautoaim 1`) |
+| `predict_position` | `predict_position.cfg` | 4 | Cacodemon en movimiento (predicción temporal) |
+| `defend_the_line` | `defend_the_line.cfg` | 4 | Oleadas frontales de Imps y demonios |
+| `take_cover` | `take_cover.cfg` | 3 | Escuadrón de DoomImps lanzando bolas de fuego |
+| `deadly_corridor` | `deadly_corridor.cfg` | 7 | Pasillo con Zombiemen, ShotgunGuys y ChaingunGuys |
+| `deathmatch` | `deathmatch.cfg` | 7 | Horda continua teletransportándose con armas pesadas |
+| `freedoom_outpost` | `freedoom2.wad:map04` | 7 | Campaña completa: Imps, ShotgunGuys y LostSouls |
+| `freedoom_stronghold` | `freedoom2.wad:map11` | 7 | Campaña completa: Zombiemen, ShotgunGuys e Imps |
+| `cyberdemon_boss` | `freedoom2.wad:map31` | 7 | Jefe final: Cyberdemon gigante + DoomImps |
+| `health_gathering` | `health_gathering.cfg` | 5 | Navegación y recolección de botiquines en ácido |
 
 ### Cómo añadir tu propio `.cfg` / `.wad` sin modificar código
 Crea un archivo JSON en `backend/app/scenarios/configs/mi_mapa.json`:

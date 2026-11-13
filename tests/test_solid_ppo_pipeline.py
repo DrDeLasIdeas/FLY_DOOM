@@ -48,6 +48,13 @@ def test_scenario_registry_all_five_and_custom_dropin(tmp_path):
         "defend_the_line",
         "deadly_corridor",
         "health_gathering",
+        "rocket_basic",
+        "predict_position",
+        "take_cover",
+        "deathmatch",
+        "freedoom_outpost",
+        "freedoom_stronghold",
+        "cyberdemon_boss",
     }.issubset(ids)
 
     for sid in ids:

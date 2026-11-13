@@ -1,0 +1,19 @@
+{
+  "id": "predict_position",
+  "name": "Cacodemon en Movimiento",
+  "description": "Cacodemon patrullando lateralmente: exige predecir su trayectoria futura sobre el FrameStack.",
+  "cfg_file": "predict_position.cfg",
+  "buttons": ["TURN_LEFT", "TURN_RIGHT", "ATTACK"],
+  "actions": [
+    {"name": "TURN_LEFT", "label": "Girar Izquierda", "buttons": [1, 0, 0]},
+    {"name": "TURN_RIGHT", "label": "Girar Derecha", "buttons": [0, 1, 0]},
+    {"name": "ATTACK", "label": "Lanzar Cohete", "buttons": [0, 0, 1]},
+    {"name": "IDLE", "label": "Esperar Trayectoria", "buttons": [0, 0, 0]}
+  ],
+  "game_variables": ["SELECTED_WEAPON_AMMO", "HEALTH", "KILLCOUNT", "HITCOUNT"],
+  "episode_timeout": 300,
+  "default_skill": 3,
+  "ammo_max": 1.0,
+  "reward_shaper": "basic",
+  "is_combat": true
+}

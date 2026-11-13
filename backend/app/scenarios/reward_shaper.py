@@ -23,6 +23,7 @@ class CombatRewardShaper(RewardShaper):
         kills_added: int,
         prev_overlay: dict[str, Any],
         curr_overlay: dict[str, Any],
+        hits_added: int = 0,
     ) -> float:
         reward = float(native_reward) + 0.001
         if health_delta < 0:
@@ -67,7 +68,7 @@ class CombatRewardShaper(RewardShaper):
 
 
 class BasicRewardShaper(RewardShaper):
-    """Normalized shaping for basic.cfg (native reward is +101 on hit, -1 per tic)."""
+    """Normalized shaping for basic/rocket/predict_position scenarios."""
 
     def shape(
         self,
@@ -80,11 +81,15 @@ class BasicRewardShaper(RewardShaper):
         kills_added: int,
         prev_overlay: dict[str, Any],
         curr_overlay: dict[str, Any],
+        hits_added: int = 0,
     ) -> float:
-        # Scale large ViZDoom basic.cfg rewards (+100 / -5 / -1) into stable PPO range.
         scaled = float(native_reward) * 0.02
+        if kills_added > 0 and native_reward < 2.0:
+            scaled += 1.2 * kills_added
+        elif hits_added > 0:
+            scaled += 0.25 * hits_added
         if prev_overlay.get("present", 0.0) > 0.5 and curr_overlay.get("present", 0.0) > 0.5:
-            scaled += 0.15 * (
+            scaled += 0.18 * (
                 abs(float(prev_overlay.get("offset", 0.0)))
                 - abs(float(curr_overlay.get("offset", 0.0)))
             )
@@ -105,16 +110,88 @@ class CorridorRewardShaper(RewardShaper):
         kills_added: int,
         prev_overlay: dict[str, Any],
         curr_overlay: dict[str, Any],
+        hits_added: int = 0,
     ) -> float:
-        # deadly_corridor gives native reward proportional to distance moved toward armor vest.
         reward = float(native_reward) * 0.05
         if health_delta < 0:
             reward += health_delta * 0.015
         if kills_added > 0:
-            reward += 0.35 * kills_added
+            reward += 0.45 * kills_added
+        elif hits_added > 0:
+            reward += 0.15 * hits_added
         if "FORWARD" in action_name:
             reward += 0.01
         return float(np.clip(reward, -2.5, 2.5))
+
+
+class AssaultRewardShaper(RewardShaper):
+    """Dense combat shaping for monster-filled arenas, Deathmatch & Freedoom2 maps."""
+
+    def shape(
+        self,
+        *,
+        action_name: str,
+        native_reward: float,
+        health_delta: float,
+        ammo_before: float,
+        ammo_delta: float,
+        kills_added: int,
+        prev_overlay: dict[str, Any],
+        curr_overlay: dict[str, Any],
+        hits_added: int = 0,
+    ) -> float:
+        reward = float(native_reward) * 0.05 + 0.002
+        if kills_added > 0:
+            reward += 1.0 * kills_added
+        if hits_added > kills_added:
+            reward += 0.30 * (hits_added - kills_added)
+
+        if health_delta < 0:
+            reward += max(-0.6, health_delta * 0.015)
+        elif health_delta > 0:
+            reward += min(0.4, health_delta * 0.02)
+
+        if prev_overlay.get("present", 0.0) > 0.5 and curr_overlay.get("present", 0.0) > 0.5:
+            reward += 0.35 * (
+                abs(float(prev_overlay.get("offset", 0.0)))
+                - abs(float(curr_overlay.get("offset", 0.0)))
+            )
+
+        is_attack = "ATTACK" in action_name
+        if curr_overlay.get("present", 0.0) > 0.5:
+            if curr_overlay.get("centered", 0.0) > 0.5 and is_attack and ammo_before > 0:
+                reward += 0.12
+        else:
+            if is_attack:
+                reward -= 0.03
+            elif "FORWARD" in action_name or "TURN" in action_name:
+                reward += 0.006
+
+        return float(np.clip(reward, -2.5, 2.5))
+
+
+class DodgeRewardShaper(RewardShaper):
+    """Evasion shaping for take_cover.cfg against fireball-throwing DoomImps."""
+
+    def shape(
+        self,
+        *,
+        action_name: str,
+        native_reward: float,
+        health_delta: float,
+        ammo_before: float,
+        ammo_delta: float,
+        kills_added: int,
+        prev_overlay: dict[str, Any],
+        curr_overlay: dict[str, Any],
+        hits_added: int = 0,
+    ) -> float:
+        reward = float(native_reward) * 0.05
+        if health_delta < 0:
+            reward += max(-1.2, health_delta * 0.025)
+        if "MOVE" in action_name:
+            reward += 0.02
+        return float(np.clip(reward, -2.0, 2.0))
 
 
 class NavigationRewardShaper(RewardShaper):
@@ -131,6 +208,7 @@ class NavigationRewardShaper(RewardShaper):
         kills_added: int,
         prev_overlay: dict[str, Any],
         curr_overlay: dict[str, Any],
+        hits_added: int = 0,
     ) -> float:
         reward = float(native_reward) * 0.05
         if health_delta > 0:
@@ -146,6 +224,8 @@ REWARD_SHAPER_REGISTRY: dict[str, type[RewardShaper]] = {
     "combat": CombatRewardShaper,
     "basic": BasicRewardShaper,
     "corridor": CorridorRewardShaper,
+    "assault": AssaultRewardShaper,
+    "dodge": DodgeRewardShaper,
     "navigation": NavigationRewardShaper,
 }
 
