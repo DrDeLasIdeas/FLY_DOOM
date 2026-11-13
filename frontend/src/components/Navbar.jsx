@@ -5,7 +5,6 @@ import {
   Crosshair,
   Presentation,
   Activity,
-  Maximize2,
   Music,
   Volume2,
   VolumeX,
@@ -91,17 +90,6 @@ export default function Navbar({
         >
           <Brain className="w-4 h-4" />
           3. Conectoma 3D
-        </button>
-        <button
-          onClick={() => setMode("fullscreen")}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
-            mode === "fullscreen"
-              ? "bg-[#4285f4] text-[#ffffff] border border-[#448cff]"
-              : "text-[#c1c1c1] hover:text-[#ffffff] hover:bg-[#252525]"
-          }`}
-        >
-          <Maximize2 className="w-4 h-4" />
-          4. Arena Fullscreen
         </button>
       </div>
 
